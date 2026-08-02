@@ -22,6 +22,26 @@ See [CLAUDE.md](CLAUDE.md) for how Lima provisioning works in detail.
 
 ## Install
 
+### Homebrew
+
+This repo doubles as its own tap ([`Formula/dev-vm.rb`](Formula/dev-vm.rb)).
+It is not named `homebrew-dev-vm`, so tap it with an explicit URL:
+
+```sh
+brew tap robsonpeixoto/dev-vm https://github.com/robsonpeixoto/dev-vm
+brew install robsonpeixoto/dev-vm/dev-vm
+```
+
+Later: `brew update && brew upgrade dev-vm`.
+
+Release assets are private, so the formula fetches them through the GitHub
+API with a custom download strategy. Credentials come from
+`HOMEBREW_GITHUB_API_TOKEN`, the `gh` CLI login, or the macOS keychain, in
+that order — a logged-in `gh` is enough. The tap clone itself uses your git
+credentials for the private repo.
+
+### From a release
+
 Prebuilt binaries are attached to every [release](../../releases). The repo is
 private, so downloads need an authenticated `gh`:
 
@@ -98,6 +118,12 @@ Pushing a `v*` tag runs `.github/workflows/release.yml`, which cross-compiles
 git tag -a v0.2.0 -m v0.2.0
 git push origin v0.2.0
 ```
+
+A last job bumps `version` and the four `sha256` values in
+`Formula/dev-vm.rb` from `checksums.txt` and commits the result to `main`, so
+the tap serves the new release without manual editing. It fails loudly if a
+`sha256` line no longer sits two lines below its `url` line — keep that layout
+when editing the formula.
 
 ## GitHub SSH key
 
