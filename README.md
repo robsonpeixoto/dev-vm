@@ -6,8 +6,12 @@ forwards, rootless Docker, zsh + oh-my-zsh, mise, GitHub SSH access.
 ```sh
 go run . create [name]    # create and start the VM
 go run . destroy [name]   # delete it
+go run . list             # list VMs with status and SSH hostname
 limactl shell <name>      # open a shell inside
 ```
+
+`list` shows the SSH hostname from Lima's generated ssh config; connect with
+`ssh -F ~/.lima/<name>/ssh.config lima-<name>`.
 
 See [CLAUDE.md](CLAUDE.md) for how Lima provisioning works in detail.
 
