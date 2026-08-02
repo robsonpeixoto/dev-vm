@@ -65,3 +65,45 @@ jobs:
           gh release create "$GITHUB_REF_NAME" dist/* \
             --title "$GITHUB_REF_NAME" \
             --generate-notes
+
+  formula:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+      - name: bump formula
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -eux
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release download "$GITHUB_REF_NAME" -p checksums.txt -D "$RUNNER_TEMP"
+          python3 - "$VERSION" "$RUNNER_TEMP/checksums.txt" <<'PY'
+          import pathlib, re, sys
+
+          version, checksums = sys.argv[1], sys.argv[2]
+          formula = pathlib.Path("Formula/dev-vm.rb")
+          text = formula.read_text()
+          text = re.sub(r'version "[^"]+"', f'version "{version}"', text, count=1)
+
+          for line in pathlib.Path(checksums).read_text().splitlines():
+              sha, name = line.split()
+              platform = name.removeprefix(f"dev-vm_{version}_").removesuffix(".tar.gz")
+              pattern = rf'(_{platform}\.tar\.gz"[^\n]*\n[^\n]*\n\s*sha256 ")[0-9a-f]{{64}}'
+              text, count = re.subn(pattern, rf'\g<1>{sha}', text, count=1)
+              if count != 1:
+                  raise SystemExit(f"no sha256 to update for {platform}")
+
+          formula.write_text(text)
+          PY
+      - name: commit
+        run: |
+          set -eux
+          git diff --quiet Formula/dev-vm.rb && exit 0
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit --no-gpg-sign -m "chore: bump formula to ${GITHUB_REF_NAME}" Formula/dev-vm.rb
+          git push origin main
