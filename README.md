@@ -7,6 +7,7 @@ forwards, rootless Docker, zsh + oh-my-zsh, mise, GitHub SSH access.
 go run . create [name]    # create and start the VM
 go run . destroy [name]   # delete it
 go run . list             # list VMs with status and SSH hostname
+go run . version          # print the build version
 limactl shell <name>      # open a shell inside
 ```
 
@@ -17,7 +18,28 @@ See [CLAUDE.md](CLAUDE.md) for how Lima provisioning works in detail.
 - macOS with [Lima](https://lima-vm.io) 2.0.0+ (`limactl`).
 - [GitHub CLI](https://cli.github.com) (`gh`), logged in with the
   `admin:public_key` scope: `gh auth refresh -h github.com -s admin:public_key`.
-- Go, to run the CLI with `go run .`.
+- Go, to run the CLI with `go run .` (not needed for a released binary).
+
+## Install
+
+Prebuilt binaries are attached to every [release](../../releases). The repo is
+private, so downloads need an authenticated `gh`:
+
+```sh
+gh release download v1.0.0 -p 'dev-vm_*_darwin_arm64.tar.gz'
+tar xzf dev-vm_1.0.0_darwin_arm64.tar.gz
+install dev-vm_1.0.0_darwin_arm64/dev-vm /usr/local/bin/dev-vm
+```
+
+The binaries are unsigned, so macOS quarantines them on first run — clear it
+with `xattr -d com.apple.quarantine /usr/local/bin/dev-vm`.
+
+`linux/{amd64,arm64}` builds are published too, but the tool drives Lima with
+`vz`/`vzNAT` (Apple Virtualization.framework) and only works on macOS.
+
+Everything the VM needs is embedded in the binary; there are no data files to
+ship alongside it. Verify a download against `checksums.txt` from the same
+release.
 
 ## Usage
 
@@ -61,6 +83,21 @@ See [CLAUDE.md](CLAUDE.md) for how Lima provisioning works in detail.
 
 State lives in `~/.config/dev-vm/state.json`, keys in
 `~/.config/dev-vm/keys/`.
+
+## Releasing
+
+`.github/workflows/ci.yml` runs `gofmt`, `go vet`, `go build` and `go test` on
+every push to `main` and every pull request.
+
+Pushing a `v*` tag runs `.github/workflows/release.yml`, which cross-compiles
+`linux/{amd64,arm64}` and `darwin/{amd64,arm64}`, injects the tag into
+`main.version` with `-ldflags -X`, and publishes the four tarballs plus
+`checksums.txt` on a GitHub Release with generated notes:
+
+```sh
+git tag -a v1.0.0 -m v1.0.0
+git push origin v1.0.0
+```
 
 ## GitHub SSH key
 
