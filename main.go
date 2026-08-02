@@ -11,6 +11,7 @@ const usage = `Manage isolated Lima dev VMs with SSH access to GitHub.
 Usage:
   devvm create [name] [--create-ssh-key[=no]] [--dotfiles[=REPO]|--no-dotfiles]
   devvm destroy [name]
+  devvm list
 
 Run a command with --help for details.
 `
@@ -25,6 +26,8 @@ func main() {
 		cmdCreate(os.Args[2:])
 	case "destroy":
 		cmdDestroy(os.Args[2:])
+	case "list":
+		cmdList(os.Args[2:])
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 	default:
