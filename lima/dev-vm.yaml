@@ -81,3 +81,34 @@ provision:
 - mode: user
   file:
     url: scripts/docker-user.sh
+probes:
+- mode: readiness
+  description: rootless docker daemon is up
+  script: |
+    #!/bin/bash
+    set -eu -o pipefail
+    if ! timeout 60s bash -c "until docker info >/dev/null 2>&1; do sleep 3; done"; then
+      echo >&2 "rootless docker is not responding"
+      exit 1
+    fi
+  hint: |
+    Rootless Docker did not come up. Check it in the guest with:
+      limactl shell <name> systemctl --user status docker
+      limactl shell <name> journalctl --user -u docker
+    Setup happens in lima/scripts/docker-user.sh.
+- mode: readiness
+  description: github.com accepts the provisioned ssh key
+  script: |
+    #!/bin/bash
+    set -eu -o pipefail
+    # `ssh -T git@github.com` exits 1 even on success, so match the greeting.
+    if ! timeout 60s bash -c 'until ssh -o BatchMode=yes -T git@github.com 2>&1 | grep -q "successfully authenticated"; do sleep 3; done'; then
+      echo >&2 "github.com did not accept the ssh key"
+      exit 1
+    fi
+  hint: |
+    GitHub SSH authentication failed. The key is generated and registered by
+    bin/create; recreate it with:
+      bin/create <name> --create-ssh-key
+    A missing admin:public_key token scope is the usual cause:
+      gh auth refresh -h github.com -s admin:public_key
