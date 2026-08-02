@@ -11,6 +11,20 @@ limactl shell <name>      # open a shell inside
 
 See [CLAUDE.md](CLAUDE.md) for how Lima provisioning works in detail.
 
+## GitHub SSH key
+
+`create` generates a fresh ed25519 key pair on every run — never a key from
+`~/.ssh` — and registers the public key on GitHub (title = VM name), replacing
+any previous key with the same title. `--create-ssh-key=no` reuses the pair
+from an earlier create.
+
+- Host: `~/.config/dev-vm/keys/<name>` (dir 0700, private key 0600, enforced
+  on every create). The host's `~/.ssh` is never read; Lima does not load
+  `~/.ssh/*.pub` into the guest.
+- Guest: the private key is uploaded to `~/.ssh/id_ed25519`; `~/.ssh/config`
+  pins it for github.com with `IdentitiesOnly yes`.
+- `destroy` deletes the GitHub key, the local pair, and the state entry.
+
 ## Provisioning steps
 
 Every step runs on **each boot** (all scripts are idempotent). The template
