@@ -1,7 +1,8 @@
 """Shared helpers for bin/create and bin/destroy.
 
 All external work goes through command line tools: `limactl` and `gh`.
-VM metadata lives in a JSON state file under ~/.config/dev-vm.
+VM metadata lives in a JSON state file under ~/.config/dev-vm, alongside an
+optional user-written settings.json holding defaults such as the dotfiles repo.
 """
 
 import json
@@ -16,8 +17,10 @@ TEMPLATE = REPO / "lima" / "dev-vm.yaml"
 KEY_DIR = REPO / "lima" / "tmp"
 STATE_DIR = Path.home() / ".config" / "dev-vm"
 STATE_FILE = STATE_DIR / "state.json"
+SETTINGS_FILE = STATE_DIR / "settings.json"
 STATE_VERSION = 1
 NAME_RE = re.compile(r"^[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*$")
+REPO_RE = re.compile(r"^[A-Za-z0-9@:._/+~-]+$")
 KEY_URL_RE = re.compile(r"^([ \t]*url:[ \t]*)tmp/\S+[ \t]*$", re.M)
 SCOPE_HINT = "run: gh auth refresh -h github.com -s admin:public_key"
 
@@ -42,6 +45,25 @@ def check_name(name):
 
 def key_paths(name):
     return KEY_DIR / name, KEY_DIR / f"{name}.pub"
+
+
+def load_settings():
+    """User defaults from ~/.config/dev-vm/settings.json, e.g. {"dotfiles": "<repo>"}."""
+    if not SETTINGS_FILE.exists():
+        return {}
+    try:
+        settings = json.loads(SETTINGS_FILE.read_text())
+    except (OSError, ValueError) as e:
+        die(f"cannot read settings {SETTINGS_FILE}: {e}")
+    if not isinstance(settings, dict):
+        die(f"settings {SETTINGS_FILE} must be a JSON object")
+    return settings
+
+
+def check_repo(repo):
+    """Guard the repo URL: it is interpolated into a yq expression and a shell var."""
+    if not REPO_RE.match(repo):
+        die(f"invalid dotfiles repo {repo!r}")
 
 
 def render_template(name):

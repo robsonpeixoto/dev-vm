@@ -18,6 +18,10 @@ containerd:
 ssh:
   forwardAgent: false
 mounts: []
+param:
+  # Dotfiles bare repo to check out over the guest $HOME. Empty disables it;
+  # bin/create sets it from --dotfiles or ~/.config/dev-vm/settings.json.
+  DOTFILES_REPO: ""
 portForwards:
 - ignore: true
   guestIP: "127.0.0.1"
@@ -37,12 +41,18 @@ provision:
   permissions: "600"
   overwrite: true
 - mode: data
-  content: |
-    Host github.com
-      User git
-      IdentityFile ~/.ssh/id_ed25519
-      IdentitiesOnly yes
+  file:
+    url: files/ssh-github.conf
   path: "{{.Home}}/.ssh/config"
+  owner: "{{.User}}"
+  permissions: "600"
+  overwrite: true
+# Same stanza kept as its own file: a dotfiles checkout may ship its own
+# ~/.ssh/config, and dotfiles.sh puts this back on top of it.
+- mode: data
+  file:
+    url: files/ssh-github.conf
+  path: "{{.Home}}/.ssh/lima-github.conf"
   owner: "{{.User}}"
   permissions: "600"
   overwrite: true
@@ -78,6 +88,11 @@ provision:
 - mode: user
   file:
     url: scripts/ssh-known-hosts.sh
+# Before docker-user.sh: the dotfiles checkout replaces ~/.bashrc, and
+# docker-user.sh appends its DOCKER_HOST line to whatever ends up there.
+- mode: user
+  file:
+    url: scripts/dotfiles.sh
 - mode: user
   file:
     url: scripts/docker-user.sh
