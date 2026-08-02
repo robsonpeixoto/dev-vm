@@ -1,2 +1,3 @@
 .claude/
 lima/tmp/
+__pycache__/

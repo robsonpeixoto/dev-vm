@@ -4,107 +4,48 @@
 Usage: bin/create [name] [--create-ssh-key[=no]]
 
 - Generates an ed25519 key pair at lima/tmp/<name> (no passphrase).
-- Registers the public key on GitHub with title <name> (replacing any
-  existing key with the same title), using the token from `gh auth token`.
+- Registers the public key on GitHub with title <name> via `gh`, replacing
+  any key recorded in the state file or sharing the same title.
 - Starts the VM from lima/dev-vm.yaml; the template uploads the private
   key, ssh config and known_hosts into the guest during provisioning.
+- Records VM metadata (GitHub key id, key paths) in ~/.config/dev-vm/state.json.
 """
 
 import argparse
-import json
-import re
-import subprocess
 import sys
-import urllib.error
-import urllib.request
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parent.parent
-TEMPLATE = REPO / "lima" / "dev-vm.yaml"
-KEY_DIR = REPO / "lima" / "tmp"
-API = "https://api.github.com"
-NAME_RE = re.compile(r"^[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*$")
-SCOPE_HINT = "run: gh auth refresh -h github.com -s admin:public_key"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-
-def die(msg):
-    print(f"error: {msg}", file=sys.stderr)
-    sys.exit(1)
-
-
-def run(cmd, **kwargs):
-    return subprocess.run(cmd, check=True, text=True, capture_output=True, **kwargs)
-
-
-def vm_exists(name):
-    out = run(["limactl", "list", "--quiet"]).stdout
-    return name in out.split()
-
-
-def gh_token():
-    try:
-        return run(["gh", "auth", "token"]).stdout.strip()
-    except (OSError, subprocess.CalledProcessError):
-        die("could not get GitHub token; run: gh auth login")
-
-
-def github(token, method, path, body=None):
-    data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(
-        API + path,
-        data=data,
-        method=method,
-        headers={
-            "Authorization": f"token {token}",
-            "Accept": "application/vnd.github+json",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req) as resp:
-            raw = resp.read()
-            return resp, json.loads(raw) if raw else None
-    except urllib.error.HTTPError as e:
-        if e.code in (403, 404):
-            die(f"GitHub API {method} {path} failed ({e.code}); "
-                f"token likely lacks admin:public_key scope; {SCOPE_HINT}")
-        die(f"GitHub API {method} {path} failed ({e.code}): {e.read().decode()}")
-
-
-def check_scope(token):
-    resp, _ = github(token, "GET", "/user")
-    scopes = [s.strip() for s in resp.headers.get("X-OAuth-Scopes", "").split(",")]
-    if scopes != [""] and "admin:public_key" not in scopes:
-        die(f"token lacks admin:public_key scope; {SCOPE_HINT}")
+import devvm as d
 
 
 def create_key(name):
-    KEY_DIR.mkdir(parents=True, exist_ok=True)
-    key = KEY_DIR / name
-    for p in (key, key.with_suffix(".pub")):
+    key, pub = d.key_paths(name)
+    d.KEY_DIR.mkdir(parents=True, exist_ok=True)
+    for p in (key, pub):
         p.unlink(missing_ok=True)
-    run(["ssh-keygen", "-t", "ed25519", "-N", "", "-C", name, "-f", str(key)])
+    d.run(["ssh-keygen", "-t", "ed25519", "-N", "", "-C", name, "-f", str(key)])
     print(f"created key {key}")
+    return key, pub
 
 
-def register_key(token, name):
-    pub = (KEY_DIR / f"{name}.pub").read_text().strip()
-    _, keys = github(token, "GET", "/user/keys?per_page=100")
-    for k in keys:
-        if k["title"] == name:
-            github(token, "DELETE", f"/user/keys/{k['id']}")
-            print(f"deleted old GitHub key {k['id']} ({name})")
-    github(token, "POST", "/user/keys", {"title": name, "key": pub})
-    print(f"registered GitHub key {name}")
+def register_key(name, pub):
+    previous = d.get_vm(name).get("github_key_id")
+    for k in d.list_keys():
+        if k["title"] == name or k["id"] == previous:
+            d.delete_key(k["id"])
+            print(f"deleted old GitHub key {k['id']} ({k['title']})")
+    created = d.add_key(name, pub.read_text().strip())
+    print(f"registered GitHub key {created['id']} ({name})")
+    return created["id"]
 
 
 def start_vm(name):
     expr = (f'(.provision[] | select(.path == "{{{{.Home}}}}/.ssh/id_ed25519")'
             f' | .file.url) = "tmp/{name}"')
-    subprocess.run(
-        ["limactl", "start", "--tty=false", "--name", name, "--set", expr,
-         str(TEMPLATE)],
-        check=True,
-    )
+    d.limactl("start", "--tty=false", "--name", name, "--set", expr,
+              str(d.TEMPLATE), capture=False)
 
 
 def main():
@@ -122,25 +63,29 @@ def main():
     args = parser.parse_args()
     name = args.name
 
-    if not NAME_RE.match(name):
-        die(f"invalid VM name {name!r}")
-    if vm_exists(name):
-        die(f"VM {name!r} already exists; run: limactl delete -f {name}")
+    d.check_name(name)
+    if d.vm_exists(name):
+        d.die(f"VM {name!r} already exists; run: bin/destroy {name}")
 
-    key_exists = (KEY_DIR / name).exists() and (KEY_DIR / f"{name}.pub").exists()
+    key, pub = d.key_paths(name)
+    key_exists = key.exists() and pub.exists()
     mode = args.create_ssh_key or ("no" if key_exists else "yes")
 
     if mode == "no":
         if not key_exists:
-            die(f"no key at {KEY_DIR / name}; rerun with --create-ssh-key")
-        print(f"reusing key {KEY_DIR / name}")
+            d.die(f"no key at {key}; rerun with --create-ssh-key")
+        print(f"reusing key {key}")
     else:
-        token = gh_token()
-        check_scope(token)
+        d.check_scopes()
         create_key(name)
-        register_key(token, name)
+        key_id = register_key(name, pub)
+        d.put_vm(name, github_key_id=key_id, github_key_title=name,
+                 private_key=str(key), public_key=str(pub))
 
     start_vm(name)
+    d.put_vm(name, template=str(d.TEMPLATE), started_at=d.now(),
+             private_key=str(key), public_key=str(pub))
+    print(f"state {d.STATE_FILE}")
 
 
 if __name__ == "__main__":
