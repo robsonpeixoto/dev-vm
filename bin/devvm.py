@@ -18,6 +18,7 @@ STATE_DIR = Path.home() / ".config" / "dev-vm"
 STATE_FILE = STATE_DIR / "state.json"
 STATE_VERSION = 1
 NAME_RE = re.compile(r"^[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*$")
+KEY_URL_RE = re.compile(r"^([ \t]*url:[ \t]*)tmp/\S+[ \t]*$", re.M)
 SCOPE_HINT = "run: gh auth refresh -h github.com -s admin:public_key"
 
 
@@ -41,6 +42,22 @@ def check_name(name):
 
 def key_paths(name):
     return KEY_DIR / name, KEY_DIR / f"{name}.pub"
+
+
+def render_template(name):
+    """Copy the template with the private-key file.url pointed at tmp/<name>.
+
+    `limactl start` inlines every provision file.url into content *before* it
+    applies --set, and then rejects a non-empty file.url, so the url has to be
+    patched before limactl reads the template. The copy stays next to the
+    original: file.url values are resolved relative to the template.
+    """
+    patched, count = KEY_URL_RE.subn(rf"\g<1>tmp/{name}", TEMPLATE.read_text())
+    if count != 1:
+        die(f"expected one 'url: tmp/...' entry in {TEMPLATE}, found {count}")
+    out = TEMPLATE.with_name(f".{TEMPLATE.stem}-{name}.yaml")
+    out.write_text(patched)
+    return out
 
 
 def limactl(*args, capture=True):

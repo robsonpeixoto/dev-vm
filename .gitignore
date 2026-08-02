@@ -1,3 +1,4 @@
 .claude/
 lima/tmp/
+lima/.dev-vm-*.yaml
 __pycache__/

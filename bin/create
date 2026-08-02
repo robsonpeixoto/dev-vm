@@ -6,8 +6,8 @@ Usage: bin/create [name] [--create-ssh-key[=no]]
 - Generates an ed25519 key pair at lima/tmp/<name> (no passphrase).
 - Registers the public key on GitHub with title <name> via `gh`, replacing
   any key recorded in the state file or sharing the same title.
-- Starts the VM from lima/dev-vm.yaml; the template uploads the private
-  key, ssh config and known_hosts into the guest during provisioning.
+- Starts the VM from lima/dev-vm.yaml; the template uploads the private key
+  and ssh config into the guest, and provisioning fetches known_hosts.
 - Records VM metadata (GitHub key id, key paths) in ~/.config/dev-vm/state.json.
 """
 
@@ -42,10 +42,12 @@ def register_key(name, pub):
 
 
 def start_vm(name):
-    expr = (f'(.provision[] | select(.path == "{{{{.Home}}}}/.ssh/id_ed25519")'
-            f' | .file.url) = "tmp/{name}"')
-    d.limactl("start", "--tty=false", "--name", name, "--set", expr,
-              str(d.TEMPLATE), capture=False)
+    template = d.render_template(name)
+    try:
+        d.limactl("start", "--tty=false", "--name", name, str(template),
+                  capture=False)
+    finally:
+        template.unlink(missing_ok=True)
 
 
 def main():
