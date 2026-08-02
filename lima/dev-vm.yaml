@@ -86,12 +86,20 @@ provision:
     url: scripts/docker-system.sh
 - mode: system
   file:
+    url: scripts/zsh-system.sh
+- mode: system
+  file:
     url: scripts/mise-system.sh
 # known_hosts is user state: `boot` mode would run as root, before this user
 # exists, and write /root/.ssh/known_hosts instead.
 - mode: user
   file:
     url: scripts/ssh-known-hosts.sh
+# Before dotfiles.sh: the installer writes a stock ~/.zshrc that a dotfiles
+# checkout then replaces with the real one.
+- mode: user
+  file:
+    url: scripts/omz-user.sh
 # Before docker-user.sh: the dotfiles checkout replaces ~/.bashrc, and
 # docker-user.sh appends its DOCKER_HOST line to whatever ends up there.
 - mode: user
