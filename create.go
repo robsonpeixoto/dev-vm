@@ -13,7 +13,8 @@ const createUsage = `Create an isolated Lima dev VM with SSH access to GitHub.
 
 Usage: devvm create [name] [--create-ssh-key[=no]] [--dotfiles[=REPO]|--no-dotfiles]
 
-- Generates an ed25519 key pair at ~/.config/dev-vm/keys/<name> (no passphrase).
+- Generates a fresh ed25519 key pair at ~/.config/dev-vm/keys/<name> (no
+  passphrase) on every create; --create-ssh-key=no reuses the existing pair.
 - Registers the public key on GitHub with title <name> via gh, replacing
   any key recorded in the state file or sharing the same title.
 - Starts the VM from the embedded lima/dev-vm.yaml; the template uploads the
@@ -58,8 +59,7 @@ func cmdCreate(argv []string) {
 	var sshKey, dotfilesFlag optFlag
 	var noDotfiles bool
 	fs.Var(&sshKey, "create-ssh-key",
-		"yes: create and register a new key; no: reuse existing key; "+
-			"default: reuse if present, otherwise create")
+		"yes (default): create and register a new key; no: reuse existing key")
 	fs.Var(&dotfilesFlag, "dotfiles",
 		"clone REPO as a bare repo and check it out over the guest $HOME; "+
 			"without =REPO, use the \"dotfiles\" entry in settings.json")
@@ -74,11 +74,10 @@ func cmdCreate(argv []string) {
 	}
 
 	key, pub := keyPaths(name)
-	keyExists := fileExists(key) && fileExists(pub)
-	mode := sshKeyMode(sshKey, keyExists)
+	mode := sshKeyMode(sshKey)
 
 	if mode == "no" {
-		if !keyExists {
+		if !fileExists(key) || !fileExists(pub) {
 			die("no key at %s; rerun with --create-ssh-key", key)
 		}
 		fmt.Printf("reusing key %s\n", key)
@@ -124,14 +123,12 @@ func parseArgs(fs *flag.FlagSet, argv []string) string {
 	return name
 }
 
-func sshKeyMode(sshKey optFlag, keyExists bool) string {
+func sshKeyMode(sshKey optFlag) string {
 	switch {
-	case !sshKey.set && keyExists:
-		return "no"
-	case !sshKey.set, sshKey.value == "":
+	case !sshKey.set, sshKey.value == "", sshKey.value == "yes":
 		return "yes"
-	case sshKey.value == "yes", sshKey.value == "no":
-		return sshKey.value
+	case sshKey.value == "no":
+		return "no"
 	}
 	die("--create-ssh-key must be yes or no, got %q", sshKey.value)
 	return ""
@@ -166,10 +163,16 @@ func createKey(name, key, pub string) {
 	if err := os.MkdirAll(keyDir, 0o700); err != nil {
 		die("cannot create %s: %v", keyDir, err)
 	}
+	if err := os.Chmod(keyDir, 0o700); err != nil {
+		die("cannot chmod %s: %v", keyDir, err)
+	}
 	for _, p := range []string{key, pub} {
 		os.Remove(p)
 	}
 	run("ssh-keygen", "-t", "ed25519", "-N", "", "-C", name, "-f", key)
+	if err := os.Chmod(key, 0o600); err != nil {
+		die("cannot chmod %s: %v", key, err)
+	}
 	fmt.Printf("created key %s\n", key)
 }
 
