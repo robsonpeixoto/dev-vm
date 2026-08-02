@@ -15,9 +15,6 @@ dockerd-rootless-setuptool.sh install
 docker context use rootless
 
 # The context above is enough for the docker CLI, but not for libraries that
-# read DOCKER_HOST directly (testcontainers, the Docker SDKs) and otherwise
-# fall back to the rootful /var/run/docker.sock that this VM deliberately does
-# not have. Exported per-session because the path contains this user's UID.
-# shellcheck disable=SC2016 # literal rc line, expanded at shell startup
-line='[ -n "$XDG_RUNTIME_DIR" ] && export DOCKER_HOST="unix://$XDG_RUNTIME_DIR/docker.sock"'
+# read DOCKER_HOST directly; ~/.docker-host.sh (a `mode: data` file) sets it.
+line='[ -f ~/.docker-host.sh ] && . ~/.docker-host.sh'
 grep -qxF "$line" ~/.bashrc 2>/dev/null || echo "$line" >>~/.bashrc

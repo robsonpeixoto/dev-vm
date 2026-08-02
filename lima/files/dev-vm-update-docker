@@ -1,0 +1,9 @@
+#!/bin/sh
+# Upgrade Docker to its latest apt-published version. Installed by dev-vm
+# provisioning; run by cron every 6 hours and at boot.
+set -eu
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y --only-upgrade \
+	docker-ce docker-ce-cli containerd.io docker-ce-rootless-extras \
+	docker-buildx-plugin docker-compose-plugin

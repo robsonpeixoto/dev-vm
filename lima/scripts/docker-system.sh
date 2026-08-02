@@ -38,26 +38,7 @@ apt-get install -y docker-ce docker-ce-cli containerd.io docker-ce-rootless-extr
 systemctl disable --now docker.service docker.socket containerd.service containerd.socket || true
 systemctl mask docker.service docker.socket containerd.service containerd.socket || true
 
-# Keep Docker current. Package upgrades reach the user's running daemon on the
-# next boot, when the rootless systemd user unit restarts.
-cat >/usr/local/sbin/dev-vm-update-docker <<'EOF'
-#!/bin/sh
-# Upgrade Docker to its latest apt-published version. Installed by dev-vm
-# provisioning; run by cron every 6 hours and at boot.
-set -eu
-export DEBIAN_FRONTEND=noninteractive
-apt-get update
-apt-get install -y --only-upgrade \
-	docker-ce docker-ce-cli containerd.io docker-ce-rootless-extras \
-	docker-buildx-plugin docker-compose-plugin
-EOF
-chmod 0755 /usr/local/sbin/dev-vm-update-docker
-
-cat >/etc/cron.d/dev-vm-update-docker <<'EOF'
-# dev-vm: keep Docker up to date. Every 6 hours and at boot.
-SHELL=/bin/sh
-PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-30 */6 * * * root /usr/local/sbin/dev-vm-update-docker
-@reboot root /usr/local/sbin/dev-vm-update-docker
-EOF
-chmod 0644 /etc/cron.d/dev-vm-update-docker
+# The updater (/usr/local/sbin/dev-vm-update-docker) and its cron entry ship as
+# `mode: data` files, applied before this script runs. Package upgrades reach
+# the user's running daemon on the next boot, when the rootless systemd user
+# unit restarts.

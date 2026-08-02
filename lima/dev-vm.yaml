@@ -46,6 +46,30 @@ provision:
   owner: "{{.User}}"
   permissions: "600"
   overwrite: true
+# Rootless Docker socket for libraries that read DOCKER_HOST directly;
+# docker-user.sh sources it from ~/.bashrc.
+- mode: data
+  file:
+    url: files/docker-host.sh
+  path: "{{.Home}}/.docker-host.sh"
+  owner: "{{.User}}"
+  permissions: "644"
+  overwrite: true
+# Docker auto-update: script plus its cron entry.
+- mode: data
+  file:
+    url: files/dev-vm-update-docker
+  path: /usr/local/sbin/dev-vm-update-docker
+  owner: "root:root"
+  permissions: "755"
+  overwrite: true
+- mode: data
+  file:
+    url: files/dev-vm-update-docker.cron
+  path: /etc/cron.d/dev-vm-update-docker
+  owner: "root:root"
+  permissions: "644"
+  overwrite: true
 - mode: system
   file:
     url: scripts/docker-system.sh

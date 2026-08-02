@@ -1,0 +1,5 @@
+# dev-vm: keep Docker up to date. Every 6 hours and at boot.
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+30 */6 * * * root /usr/local/sbin/dev-vm-update-docker
+@reboot root /usr/local/sbin/dev-vm-update-docker
