@@ -84,6 +84,9 @@ provision:
 - mode: system
   file:
     url: scripts/docker-system.sh
+- mode: system
+  file:
+    url: scripts/mise-system.sh
 # known_hosts is user state: `boot` mode would run as root, before this user
 # exists, and write /root/.ssh/known_hosts instead.
 - mode: user
@@ -97,6 +100,11 @@ provision:
 - mode: user
   file:
     url: scripts/docker-user.sh
+# After dotfiles.sh: the checkout delivers the mise config and ~/.zshrc that
+# this script trusts, installs from, and appends to.
+- mode: user
+  file:
+    url: scripts/mise-user.sh
 probes:
 - mode: readiness
   description: rootless docker daemon is up
