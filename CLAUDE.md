@@ -10,14 +10,14 @@ Lima runs a Linux guest from a YAML template. On macOS the VM type is `vz`
 
 - `limactl start [--name <name>] <template.yaml>` creates an instance directory
   at `~/.lima/<name>/` and boots it. `--set '<yq expression>'` patches the
-  template at creation time (used by `bin/create` to point the private-key
-  data file at `tmp/<name>`).
+  template at creation time (used by `devvm create` to set the
+  `DOTFILES_REPO` param).
 - The template is **flattened at creation**: `base:` templates are merged, and
   external `provision`/`probes` `file:` references are inlined into the stored
   `~/.lima/<name>/lima.yaml`. That file — not the repo template — is the source
   of truth for later boots. Editing `lima/dev-vm.yaml` or `lima/scripts/*.sh`
-  has **no effect on an existing VM**; recreate it (`bin/destroy && bin/create`)
-  or `limactl edit <name>`.
+  has **no effect on an existing VM**; recreate it
+  (`go run . destroy && go run . create`) or `limactl edit <name>`.
 - Instance directory holds `lima.yaml`, `basedisk`/`diffdisk`, `cidata.iso`,
   `ha.stdout.log`, `ha.stderr.log`, `serial*.log`.
 - Guest configuration is delivered by **cloud-init** through `cidata.iso`,
@@ -163,7 +163,8 @@ matches on output).
 
 ### Dotfiles
 
-`bin/create --dotfiles[=REPO]` sets the `DOTFILES_REPO` param (via `--set`),
+`go run . create --dotfiles[=REPO]` sets the `DOTFILES_REPO` param (via
+`--set`),
 which `lima/scripts/dotfiles.sh` reads as `PARAM_DOTFILES_REPO` in the guest:
 it clones the bare repo to `~/.dotfiles` and checks it out over `$HOME`.
 Empty param means the script exits 0 without doing anything.
@@ -199,5 +200,10 @@ Empty param means the script exits 0 without doing anything.
 - Secrets and config files go through `mode: data` with explicit `owner` and
   `permissions`, not `echo` or a heredoc inside a script. Static payloads live
   in `lima/files/`, referenced with `file.url` like the scripts.
+- Templates, scripts and static files are embedded into the Go binary with
+  `//go:embed` (see `embed.go`) and materialized into a temp dir at create
+  time; `go run .` picks up edits automatically, a prebuilt `devvm` binary
+  must be rebuilt.
 - After changing a template or script, the VM must be recreated
-  (`bin/destroy <name> && bin/create <name>`) for the change to apply.
+  (`go run . destroy <name> && go run . create <name>`) for the change to
+  apply.
