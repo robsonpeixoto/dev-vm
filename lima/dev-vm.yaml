@@ -1,0 +1,27 @@
+# Isolated dev VM: no mounts, no port forwards, own IP via vzNAT.
+#   limactl start --name <name> ./lima/dev-vm.yaml
+#   limactl shell <name>            # get IP: ip -4 addr
+#   limactl delete -f <name>
+minimumLimaVersion: "2.0.0"
+base:
+- template:_images/ubuntu-lts
+vmType: vz
+cpus: 4
+memory: 16GiB
+disk: 50GiB
+networks:
+- vzNAT: true
+containerd:
+  system: false
+  user: false
+ssh:
+  forwardAgent: false
+mounts: []
+portForwards:
+- ignore: true
+  guestIP: "127.0.0.1"
+  proto: any
+- ignore: true
+  guestIP: "0.0.0.0"
+  guestIPMustBeZero: false
+  proto: any
