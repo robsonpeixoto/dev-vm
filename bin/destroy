@@ -1,0 +1,130 @@
+#!/usr/bin/env python3
+"""Destroy a Lima dev VM and its GitHub SSH access.
+
+Usage: bin/destroy [name]
+
+- Deletes the Lima VM <name>.
+- Deletes the GitHub key(s) titled <name>, using the token from
+  `gh auth token`.
+- Removes the key pair at lima/tmp/<name>.
+
+Each step is skipped with a message when there is nothing to remove, so a
+partial destroy can be re-run.
+"""
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+KEY_DIR = REPO / "lima" / "tmp"
+API = "https://api.github.com"
+NAME_RE = re.compile(r"^[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*$")
+SCOPE_HINT = "run: gh auth refresh -h github.com -s admin:public_key"
+
+
+def die(msg):
+    print(f"error: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def run(cmd, **kwargs):
+    return subprocess.run(cmd, check=True, text=True, capture_output=True, **kwargs)
+
+
+def vm_exists(name):
+    out = run(["limactl", "list", "--quiet"]).stdout
+    return name in out.split()
+
+
+def gh_token():
+    try:
+        return run(["gh", "auth", "token"]).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        die("could not get GitHub token; run: gh auth login")
+
+
+def github(token, method, path, body=None):
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(
+        API + path,
+        data=data,
+        method=method,
+        headers={
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github+json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req) as resp:
+            raw = resp.read()
+            return resp, json.loads(raw) if raw else None
+    except urllib.error.HTTPError as e:
+        if e.code in (403, 404):
+            die(f"GitHub API {method} {path} failed ({e.code}); "
+                f"token likely lacks admin:public_key scope; {SCOPE_HINT}")
+        die(f"GitHub API {method} {path} failed ({e.code}): {e.read().decode()}")
+
+
+def check_scope(token):
+    resp, _ = github(token, "GET", "/user")
+    scopes = [s.strip() for s in resp.headers.get("X-OAuth-Scopes", "").split(",")]
+    if scopes != [""] and "admin:public_key" not in scopes:
+        die(f"token lacks admin:public_key scope; {SCOPE_HINT}")
+
+
+def delete_vm(name):
+    if not vm_exists(name):
+        print(f"no VM {name!r}, skipping")
+        return
+    subprocess.run(["limactl", "delete", "-f", name], check=True)
+    print(f"deleted VM {name}")
+
+
+def delete_github_key(token, name):
+    _, keys = github(token, "GET", "/user/keys?per_page=100")
+    found = False
+    for k in keys:
+        if k["title"] == name:
+            github(token, "DELETE", f"/user/keys/{k['id']}")
+            print(f"deleted GitHub key {k['id']} ({name})")
+            found = True
+    if not found:
+        print(f"no GitHub key titled {name!r}, skipping")
+
+
+def delete_key_files(name):
+    found = False
+    for p in (KEY_DIR / name, KEY_DIR / f"{name}.pub"):
+        if p.exists():
+            p.unlink()
+            print(f"removed {p}")
+            found = True
+    if not found:
+        print(f"no key files at {KEY_DIR / name}, skipping")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("name", nargs="?", default="default", help="VM name")
+    args = parser.parse_args()
+    name = args.name
+
+    if not NAME_RE.match(name):
+        die(f"invalid VM name {name!r}")
+
+    token = gh_token()
+    check_scope(token)
+
+    delete_vm(name)
+    delete_github_key(token, name)
+    delete_key_files(name)
+
+
+if __name__ == "__main__":
+    main()
