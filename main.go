@@ -1,4 +1,4 @@
-// devvm manages isolated Lima dev VMs with SSH access to GitHub.
+// dev-vm manages isolated Lima dev VMs with SSH access to GitHub.
 package main
 
 import (
@@ -6,12 +6,16 @@ import (
 	"os"
 )
 
+// version is set at build time with -X main.version=<tag>.
+var version = "dev"
+
 const usage = `Manage isolated Lima dev VMs with SSH access to GitHub.
 
 Usage:
-  devvm create [name] [--create-ssh-key[=no]] [--dotfiles[=REPO]|--no-dotfiles]
-  devvm destroy [name]
-  devvm list
+  dev-vm create [name] [--create-ssh-key[=no]] [--dotfiles[=REPO]|--no-dotfiles]
+  dev-vm destroy [name]
+  dev-vm list
+  dev-vm version
 
 Run a command with --help for details.
 `
@@ -28,6 +32,8 @@ func main() {
 		cmdDestroy(os.Args[2:])
 	case "list":
 		cmdList(os.Args[2:])
+	case "version":
+		fmt.Println(version)
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 	default:
