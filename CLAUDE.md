@@ -82,8 +82,9 @@ Notes per mode:
 
 - **`boot`** — runs before mounts, before packages, before the network is
   necessarily up. Only for things that must precede everything else.
-  This repo uses it for `ssh-known-hosts.sh` (it retries `ssh-keyscan` with
-  backoff precisely because the network may not be ready).
+  This repo uses no `boot` entry: it runs as root before the guest login user
+  exists, so anything writing into `{{.Home}}` (`ssh-known-hosts.sh`, for one)
+  would land in `/root` instead. Use `user` mode for that.
 - **`dependency`** — for adding package repos/packages before Lima installs
   its own dependencies. Set `skipDefaultDependencyResolution: true` on at
   least one entry to suppress Lima's default package installation entirely.
@@ -152,7 +153,13 @@ anything, so provision scripts see `LIMA_CIDATA_*`: `LIMA_CIDATA_USER`,
 `probes:` (`mode: readiness`) run as the user after provisioning and gate
 `limactl start` completion. Each needs a `#!` line; add a `hint:` shown on
 failure. Use a probe when a later step (or the operator) depends on a service
-actually being up, rather than sleeping inside a provision script.
+actually being up, rather than sleeping inside a provision script. Only
+`script` is Go-templated — `hint` is not, so write literal text there.
+
+This repo probes the two things the VM exists for: the rootless Docker daemon
+answering `docker info`, and `ssh -T git@github.com` reporting `successfully
+authenticated` (that command exits non-zero even on success, so the probe
+matches on output).
 
 ### Debugging
 
@@ -170,6 +177,7 @@ actually being up, rather than sleeping inside a provision script.
 - Idempotent, always — the script reruns on every boot.
 - Root work in `system`, per-user/systemd work in `user`, never mix.
 - Secrets and config files go through `mode: data` with explicit `owner` and
-  `permissions`, not `echo` inside a script.
+  `permissions`, not `echo` or a heredoc inside a script. Static payloads live
+  in `lima/files/`, referenced with `file.url` like the scripts.
 - After changing a template or script, the VM must be recreated
   (`bin/destroy <name> && bin/create <name>`) for the change to apply.
