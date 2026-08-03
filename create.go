@@ -11,18 +11,18 @@ import (
 
 const createUsage = `Create an isolated Lima dev VM with SSH access to GitHub.
 
-Usage: devvm create [name] [--create-ssh-key[=no]] [--dotfiles[=REPO]|--no-dotfiles]
+Usage: devvm create [name] [-create-ssh-key=false] [-dotfiles REPO|-no-dotfiles]
                     [-cpus N] [-memory GiB] [-disk GiB]
 
 - Generates a fresh ed25519 key pair at ~/.config/dev-vm/keys/<name> (no
-  passphrase) on every create; --create-ssh-key=no reuses the existing pair.
+  passphrase) on every create; -create-ssh-key=false reuses the existing pair.
 - Registers the public key on GitHub with title <name> via gh, replacing
   any key recorded in the state file or sharing the same title.
 - Starts the VM from the embedded lima/dev-vm.yaml; the template uploads the
   private key and ssh config into the guest, and provisioning fetches
   known_hosts.
 - With dotfiles enabled, provisioning clones the bare repo to ~/.dotfiles in
-  the guest and checks it out over $HOME. The repo comes from --dotfiles or
+  the guest and checks it out over $HOME. The repo comes from -dotfiles or
   from {"dotfiles": "<repo>"} in ~/.config/dev-vm/settings.json, which also
   turns dotfiles on by default for every VM.
 - Sizes the VM at 2 vCPUs, 2 GiB RAM and a 50 GiB disk by default. -cpus,
@@ -32,29 +32,7 @@ Usage: devvm create [name] [--create-ssh-key[=no]] [--dotfiles[=REPO]|--no-dotfi
   fixed at create time — resizing means destroy and create again.
 - Records VM metadata (GitHub key id, key paths) in ~/.config/dev-vm/state.json.
 
-Flags taking an optional value need the = form: --dotfiles=REPO.
-
 `
-
-// optFlag is a string flag whose value is optional: IsBoolFlag lets the flag
-// package accept a bare --name (Set receives "true") as well as --name=value.
-type optFlag struct {
-	set   bool
-	value string
-}
-
-func (o *optFlag) String() string { return o.value }
-
-func (o *optFlag) IsBoolFlag() bool { return true }
-
-func (o *optFlag) Set(s string) error {
-	o.set = true
-	if s == "true" {
-		s = ""
-	}
-	o.value = s
-	return nil
-}
 
 // resources is the VM size; memory and disk are in GiB.
 type resources struct {
@@ -71,13 +49,14 @@ func cmdCreate(argv []string) {
 		fmt.Fprint(os.Stderr, createUsage)
 		fs.PrintDefaults()
 	}
-	var sshKey, dotfilesFlag optFlag
+	var createSSHKey bool
+	var dotfilesRepo string
 	var noDotfiles bool
-	fs.Var(&sshKey, "create-ssh-key",
-		"yes (default): create and register a new key; no: reuse existing key")
-	fs.Var(&dotfilesFlag, "dotfiles",
+	fs.BoolVar(&createSSHKey, "create-ssh-key", true,
+		"create and register a new key; -create-ssh-key=false reuses the existing key")
+	fs.StringVar(&dotfilesRepo, "dotfiles", "",
 		"clone REPO as a bare repo and check it out over the guest $HOME; "+
-			"without =REPO, use the \"dotfiles\" entry in settings.json")
+			"unset, use the \"dotfiles\" entry in settings.json")
 	fs.BoolVar(&noDotfiles, "no-dotfiles", false,
 		"skip dotfiles even when settings.json configures them")
 	res := settingsResources()
@@ -88,17 +67,16 @@ func cmdCreate(argv []string) {
 
 	checkName(name)
 	checkResources(res)
-	dotfiles := resolveDotfiles(dotfilesFlag, noDotfiles)
+	dotfiles := resolveDotfiles(dotfilesRepo, noDotfiles)
 	if vmExists(name) {
 		die("VM %q already exists; run: devvm destroy %s", name, name)
 	}
 
 	key, pub := keyPaths(name)
-	mode := sshKeyMode(sshKey)
 
-	if mode == "no" {
+	if !createSSHKey {
 		if !fileExists(key) || !fileExists(pub) {
-			die("no key at %s; rerun with --create-ssh-key", key)
+			die("no key at %s; rerun without -create-ssh-key=false", key)
 		}
 		fmt.Printf("reusing key %s\n", key)
 	} else {
@@ -144,30 +122,14 @@ func parseArgs(fs *flag.FlagSet, argv []string) string {
 	return name
 }
 
-func sshKeyMode(sshKey optFlag) string {
-	switch {
-	case !sshKey.set, sshKey.value == "", sshKey.value == "yes":
-		return "yes"
-	case sshKey.value == "no":
-		return "no"
-	}
-	die("--create-ssh-key must be yes or no, got %q", sshKey.value)
-	return ""
-}
-
-// resolveDotfiles: CLI wins over settings.json; bare --dotfiles falls back to
+// resolveDotfiles: -dotfiles wins over settings.json; unset falls back to
 // settings.
-func resolveDotfiles(dotfiles optFlag, noDotfiles bool) string {
+func resolveDotfiles(repo string, noDotfiles bool) string {
 	if noDotfiles {
 		return ""
 	}
-	configured, _ := loadSettings()["dotfiles"].(string)
-	repo := configured
-	if dotfiles.set && dotfiles.value != "" {
-		repo = dotfiles.value
-	}
-	if dotfiles.set && dotfiles.value == "" && repo == "" {
-		die("--dotfiles needs a repo, or a \"dotfiles\" entry in %s", settingsFile)
+	if repo == "" {
+		repo, _ = loadSettings()["dotfiles"].(string)
 	}
 	if repo != "" {
 		checkRepo(repo)

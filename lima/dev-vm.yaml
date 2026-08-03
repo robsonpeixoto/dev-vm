@@ -23,7 +23,7 @@ user:
 mounts: []
 param:
   # Dotfiles bare repo to check out over the guest $HOME. Empty disables it;
-  # devvm create sets it from --dotfiles or ~/.config/dev-vm/settings.json.
+  # devvm create sets it from -dotfiles or ~/.config/dev-vm/settings.json.
   DOTFILES_REPO: ""
 portForwards:
 - ignore: true
@@ -144,6 +144,6 @@ probes:
   hint: |
     GitHub SSH authentication failed. The key is generated and registered by
     devvm create; recreate it with:
-      go run . create <name> --create-ssh-key
+      go run . create <name> -create-ssh-key
     A missing admin:public_key token scope is the usual cause:
       gh auth refresh -h github.com -s admin:public_key

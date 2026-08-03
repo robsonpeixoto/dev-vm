@@ -75,11 +75,11 @@ release.
 2. Optional — bring your dotfiles (bare repo checked out over `$HOME`):
 
    ```sh
-   go run . create myvm --dotfiles=git@github.com:user/dotfiles.git
+   go run . create myvm -dotfiles git@github.com:user/dotfiles.git
    ```
 
    Put `{"dotfiles": "<repo>"}` in `~/.config/dev-vm/settings.json` to enable
-   it for every VM; `--no-dotfiles` skips it.
+   it for every VM; `-no-dotfiles` skips it.
 
 3. Optional — size the VM. `-memory` and `-disk` are plain integers in GiB:
 
@@ -157,7 +157,7 @@ editing. Two requirements:
 
 `create` generates a fresh ed25519 key pair on every run — never a key from
 `~/.ssh` — and registers the public key on GitHub (title = VM name), replacing
-any previous key with the same title. `--create-ssh-key=no` reuses the pair
+any previous key with the same title. `-create-ssh-key=false` reuses the pair
 from an earlier create.
 
 - Host: `~/.config/dev-vm/keys/<name>` (dir 0700, private key 0600, enforced

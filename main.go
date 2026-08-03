@@ -12,13 +12,13 @@ var version = "dev"
 const usage = `Manage isolated Lima dev VMs with SSH access to GitHub.
 
 Usage:
-  dev-vm create [name] [--create-ssh-key[=no]] [--dotfiles[=REPO]|--no-dotfiles]
+  dev-vm create [name] [-create-ssh-key=false] [-dotfiles REPO|-no-dotfiles]
                 [-cpus N] [-memory GiB] [-disk GiB]
   dev-vm destroy [name]
   dev-vm list
   dev-vm version
 
-Run a command with --help for details.
+Run a command with -help for details.
 `
 
 func main() {
@@ -35,7 +35,7 @@ func main() {
 		cmdList(os.Args[2:])
 	case "version":
 		fmt.Println(version)
-	case "help", "-h", "--help":
+	case "help", "-h", "-help":
 		fmt.Print(usage)
 	default:
 		fmt.Fprint(os.Stderr, usage)

@@ -164,7 +164,7 @@ matches on output).
 
 ### Dotfiles
 
-`go run . create --dotfiles[=REPO]` sets the `DOTFILES_REPO` param (via
+`go run . create -dotfiles REPO` sets the `DOTFILES_REPO` param (via
 `--set`),
 which `lima/scripts/dotfiles.sh` reads as `PARAM_DOTFILES_REPO` in the guest:
 it clones the bare repo to `~/.dotfiles` and checks it out over `$HOME`.
@@ -172,7 +172,7 @@ Empty param means the script exits 0 without doing anything.
 
 - The repo can also come from `{"dotfiles": "<repo>"}` in
   `~/.config/dev-vm/settings.json`, which turns dotfiles on for every VM.
-  `--dotfiles=REPO` overrides it, `--no-dotfiles` skips it.
+  `-dotfiles REPO` overrides it, `-no-dotfiles` skips it.
 - Pre-existing files the checkout would clobber move to `~/tmp/config-backup`
   keeping their relative path.
 - The entry runs **before** `docker-user.sh` — the checkout replaces
