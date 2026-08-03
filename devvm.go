@@ -3,7 +3,7 @@
 // All external work goes through command line tools: limactl and gh.
 // VM metadata lives in a JSON state file under ~/.config/dev-vm, alongside an
 // optional user-written settings.json holding defaults such as the dotfiles
-// repo. SSH key pairs are kept in ~/.config/dev-vm/keys.
+// repo and the VM size. SSH key pairs are kept in ~/.config/dev-vm/keys.
 package main
 
 import (
@@ -69,7 +69,7 @@ func keyPaths(name string) (key, pub string) {
 }
 
 // loadSettings reads user defaults from ~/.config/dev-vm/settings.json,
-// e.g. {"dotfiles": "<repo>"}.
+// e.g. {"dotfiles": "<repo>", "cpus": 4, "memory": 8, "disk": 100}.
 func loadSettings() map[string]any {
 	data, err := os.ReadFile(settingsFile)
 	if errors.Is(err, os.ErrNotExist) {
@@ -87,6 +87,15 @@ func loadSettings() map[string]any {
 		die("settings %s must be a JSON object", settingsFile)
 	}
 	return settings
+}
+
+// settingsInt reads a positive integer setting; JSON decoding gives float64.
+func settingsInt(key string, v any) int {
+	n, ok := v.(float64)
+	if !ok || n != float64(int(n)) || n <= 0 {
+		die("settings %s: %q must be a positive integer", settingsFile, key)
+	}
+	return int(n)
 }
 
 func run(name string, args ...string) {

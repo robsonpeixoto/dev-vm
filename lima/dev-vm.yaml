@@ -7,8 +7,9 @@ minimumLimaVersion: "2.0.0"
 base:
 - template:_images/ubuntu-lts
 vmType: vz
-cpus: 4
-memory: 16GiB
+# devvm create overrides these from -cpus/-memory/-disk or settings.json.
+cpus: 2
+memory: 2GiB
 disk: 50GiB
 networks:
 - vzNAT: true

@@ -1,17 +1,20 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
 const createUsage = `Create an isolated Lima dev VM with SSH access to GitHub.
 
 Usage: devvm create [name] [--create-ssh-key[=no]] [--dotfiles[=REPO]|--no-dotfiles]
+                    [-cpus N] [-memory GiB] [-disk GiB]
 
 - Generates a fresh ed25519 key pair at ~/.config/dev-vm/keys/<name> (no
   passphrase) on every create; --create-ssh-key=no reuses the existing pair.
@@ -24,6 +27,11 @@ Usage: devvm create [name] [--create-ssh-key[=no]] [--dotfiles[=REPO]|--no-dotfi
   the guest and checks it out over $HOME. The repo comes from --dotfiles or
   from {"dotfiles": "<repo>"} in ~/.config/dev-vm/settings.json, which also
   turns dotfiles on by default for every VM.
+- Sizes the VM at 2 vCPUs, 2 GiB RAM and a 50 GiB disk by default. -cpus,
+  -memory and -disk override that; -memory and -disk are plain integers in
+  GiB. The "cpus", "memory" and "disk" entries in
+  ~/.config/dev-vm/settings.json change the defaults for every VM. Size is
+  fixed at create time — resizing means destroy and create again.
 - Records VM metadata (GitHub key id, key paths) in ~/.config/dev-vm/state.json.
 
 Flags taking an optional value need the = form: --dotfiles=REPO.
@@ -50,6 +58,38 @@ func (o *optFlag) Set(s string) error {
 	return nil
 }
 
+// intFlag is a positive-integer flag that records whether it was set, so
+// resolution can fall back to settings.json.
+type intFlag struct {
+	set   bool
+	value int
+}
+
+func (i *intFlag) String() string {
+	if !i.set {
+		return ""
+	}
+	return strconv.Itoa(i.value)
+}
+
+func (i *intFlag) Set(s string) error {
+	n, err := strconv.Atoi(s)
+	if err != nil || n <= 0 {
+		return errors.New("must be a positive integer")
+	}
+	i.set, i.value = true, n
+	return nil
+}
+
+// resources is the VM size; memory and disk are in GiB.
+type resources struct {
+	cpus   int
+	memory int
+	disk   int
+}
+
+var defaultResources = resources{cpus: 2, memory: 2, disk: 50}
+
 func cmdCreate(argv []string) {
 	fs := flag.NewFlagSet("create", flag.ExitOnError)
 	fs.Usage = func() {
@@ -65,10 +105,15 @@ func cmdCreate(argv []string) {
 			"without =REPO, use the \"dotfiles\" entry in settings.json")
 	fs.BoolVar(&noDotfiles, "no-dotfiles", false,
 		"skip dotfiles even when settings.json configures them")
+	var cpus, memory, disk intFlag
+	fs.Var(&cpus, "cpus", "vCPUs for the VM (default 2, or \"cpus\" in settings.json)")
+	fs.Var(&memory, "memory", "RAM in GiB (default 2, or \"memory\" in settings.json)")
+	fs.Var(&disk, "disk", "disk size in GiB (default 50, or \"disk\" in settings.json)")
 	name := parseArgs(fs, argv)
 
 	checkName(name)
 	dotfiles := resolveDotfiles(dotfilesFlag, noDotfiles)
+	res := resolveResources(cpus, memory, disk)
 	if vmExists(name) {
 		die("VM %q already exists; run: devvm destroy %s", name, name)
 	}
@@ -96,7 +141,8 @@ func cmdCreate(argv []string) {
 	if dotfiles != "" {
 		fmt.Printf("installing dotfiles from %s\n", dotfiles)
 	}
-	startVM(name, dotfiles, key)
+	fmt.Printf("VM size %d vCPU, %dGiB RAM, %dGiB disk\n", res.cpus, res.memory, res.disk)
+	startVM(name, dotfiles, res, key)
 	putVM(name, map[string]any{
 		"template":    "embedded:lima/dev-vm.yaml",
 		"started_at":  now(),
@@ -154,6 +200,30 @@ func resolveDotfiles(dotfiles optFlag, noDotfiles bool) string {
 	return repo
 }
 
+// resolveResources: CLI wins over settings.json, which wins over the built-in
+// defaults.
+func resolveResources(cpus, memory, disk intFlag) resources {
+	settings := loadSettings()
+	res := defaultResources
+	for _, r := range []struct {
+		key  string
+		flag intFlag
+		out  *int
+	}{
+		{"cpus", cpus, &res.cpus},
+		{"memory", memory, &res.memory},
+		{"disk", disk, &res.disk},
+	} {
+		if v, ok := settings[r.key]; ok {
+			*r.out = settingsInt(r.key, v)
+		}
+		if r.flag.set {
+			*r.out = r.flag.value
+		}
+	}
+	return res
+}
+
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
@@ -196,7 +266,7 @@ func registerKey(name, pub string) int64 {
 // startVM materializes the embedded template tree into a temp directory —
 // limactl resolves provision file.url paths relative to the template — drops
 // the private key at tmp/default where the template expects it, and boots.
-func startVM(name, dotfiles, key string) {
+func startVM(name, dotfiles string, res resources, key string) {
 	dir, err := os.MkdirTemp("", "dev-vm-")
 	if err != nil {
 		die("cannot create temp dir: %v", err)
@@ -233,6 +303,8 @@ func startVM(name, dotfiles, key string) {
 	}
 
 	limactlRun("start", "--tty=false", "--name", name,
-		"--set", fmt.Sprintf(".param.DOTFILES_REPO = %q", dotfiles),
+		"--set", fmt.Sprintf(
+			`.cpus = %d | .memory = "%dGiB" | .disk = "%dGiB" | .param.DOTFILES_REPO = %q`,
+			res.cpus, res.memory, res.disk, dotfiles),
 		filepath.Join(dir, "dev-vm.yaml"))
 }
