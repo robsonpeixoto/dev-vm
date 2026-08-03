@@ -17,6 +17,8 @@ containerd:
   user: false
 ssh:
   forwardAgent: false
+user:
+  shell: /usr/bin/zsh
 mounts: []
 param:
   # Dotfiles bare repo to check out over the guest $HOME. Empty disables it;
