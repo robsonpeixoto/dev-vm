@@ -46,9 +46,9 @@ Prebuilt binaries are attached to every [release](../../releases). The repo is
 private, so downloads need an authenticated `gh`:
 
 ```sh
-gh release download v0.1.0 -p 'dev-vm_*_darwin_arm64.tar.gz'
-tar xzf dev-vm_0.1.0_darwin_arm64.tar.gz
-install dev-vm_0.1.0_darwin_arm64/dev-vm /usr/local/bin/dev-vm
+gh release download v0.2.0 -p 'dev-vm_*_darwin_arm64.tar.gz'
+tar xzf dev-vm_0.2.0_darwin_arm64.tar.gz
+install dev-vm_0.2.0_darwin_arm64/dev-vm /usr/local/bin/dev-vm
 ```
 
 The binaries are unsigned, so macOS quarantines them on first run — clear it
