@@ -1,13 +1,11 @@
 package main
 
 import (
-	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 )
 
@@ -58,29 +56,6 @@ func (o *optFlag) Set(s string) error {
 	return nil
 }
 
-// intFlag is a positive-integer flag that records whether it was set, so
-// resolution can fall back to settings.json.
-type intFlag struct {
-	set   bool
-	value int
-}
-
-func (i *intFlag) String() string {
-	if !i.set {
-		return ""
-	}
-	return strconv.Itoa(i.value)
-}
-
-func (i *intFlag) Set(s string) error {
-	n, err := strconv.Atoi(s)
-	if err != nil || n <= 0 {
-		return errors.New("must be a positive integer")
-	}
-	i.set, i.value = true, n
-	return nil
-}
-
 // resources is the VM size; memory and disk are in GiB.
 type resources struct {
 	cpus   int
@@ -105,15 +80,15 @@ func cmdCreate(argv []string) {
 			"without =REPO, use the \"dotfiles\" entry in settings.json")
 	fs.BoolVar(&noDotfiles, "no-dotfiles", false,
 		"skip dotfiles even when settings.json configures them")
-	var cpus, memory, disk intFlag
-	fs.Var(&cpus, "cpus", "vCPUs for the VM (default 2, or \"cpus\" in settings.json)")
-	fs.Var(&memory, "memory", "RAM in GiB (default 2, or \"memory\" in settings.json)")
-	fs.Var(&disk, "disk", "disk size in GiB (default 50, or \"disk\" in settings.json)")
+	res := settingsResources()
+	fs.IntVar(&res.cpus, "cpus", res.cpus, "vCPUs for the VM")
+	fs.IntVar(&res.memory, "memory", res.memory, "RAM in GiB")
+	fs.IntVar(&res.disk, "disk", res.disk, "disk size in GiB")
 	name := parseArgs(fs, argv)
 
 	checkName(name)
+	checkResources(res)
 	dotfiles := resolveDotfiles(dotfilesFlag, noDotfiles)
-	res := resolveResources(cpus, memory, disk)
 	if vmExists(name) {
 		die("VM %q already exists; run: devvm destroy %s", name, name)
 	}
@@ -200,28 +175,39 @@ func resolveDotfiles(dotfiles optFlag, noDotfiles bool) string {
 	return repo
 }
 
-// resolveResources: CLI wins over settings.json, which wins over the built-in
-// defaults.
-func resolveResources(cpus, memory, disk intFlag) resources {
+// settingsResources: settings.json overrides the built-in defaults; the result
+// is what the -cpus/-memory/-disk flags default to.
+func settingsResources() resources {
 	settings := loadSettings()
 	res := defaultResources
 	for _, r := range []struct {
-		key  string
-		flag intFlag
-		out  *int
+		key string
+		out *int
 	}{
-		{"cpus", cpus, &res.cpus},
-		{"memory", memory, &res.memory},
-		{"disk", disk, &res.disk},
+		{"cpus", &res.cpus},
+		{"memory", &res.memory},
+		{"disk", &res.disk},
 	} {
 		if v, ok := settings[r.key]; ok {
 			*r.out = settingsInt(r.key, v)
 		}
-		if r.flag.set {
-			*r.out = r.flag.value
-		}
 	}
 	return res
+}
+
+func checkResources(res resources) {
+	for _, r := range []struct {
+		flag string
+		n    int
+	}{
+		{"cpus", res.cpus},
+		{"memory", res.memory},
+		{"disk", res.disk},
+	} {
+		if r.n <= 0 {
+			die("-%s must be a positive integer, got %d", r.flag, r.n)
+		}
+	}
 }
 
 func fileExists(path string) bool {

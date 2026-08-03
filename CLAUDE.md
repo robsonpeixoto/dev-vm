@@ -187,14 +187,15 @@ Empty param means the script exits 0 without doing anything.
 
 `cpus`, `memory` and `disk` are **top-level template fields**, not params, so
 `devvm create` patches them with `.cpus = N | .memory = "NGiB" | .disk = "NGiB"`
-rather than `.param.*`. Resolution order in `resolveResources` (`create.go`):
-`-cpus`/`-memory`/`-disk` flags, then the `cpus`/`memory`/`disk` keys in
-`~/.config/dev-vm/settings.json`, then `defaultResources` (2 vCPUs, 2 GiB,
-50 GiB). The values in `lima/dev-vm.yaml` are documentation only — `--set`
-always overwrites them.
+rather than `.param.*`. Resolution order: `settingsResources` (`create.go`)
+starts from `defaultResources` (2 vCPUs, 2 GiB, 50 GiB) and applies the
+`cpus`/`memory`/`disk` keys in `~/.config/dev-vm/settings.json`; that result is
+the default handed to the `-cpus`/`-memory`/`-disk` `fs.IntVar` flags, so a flag
+that is passed wins. The values in `lima/dev-vm.yaml` are documentation only —
+`--set` always overwrites them.
 
-Flags and settings are integers in GiB; anything else is rejected before the VM
-starts. Because the template is flattened at creation, the size is fixed for
+Flags and settings are integers in GiB; non-integers are rejected by the `flag`
+package and non-positive values by `checkResources`, both before the VM starts. Because the template is flattened at creation, the size is fixed for
 the instance's life: resizing means `limactl edit` or destroy + create.
 
 `go run . list` reads the live `cpus`/`memory`/`disk` back out of

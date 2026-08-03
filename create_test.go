@@ -1,48 +1,18 @@
 package main
 
 import (
+	"flag"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
-func TestIntFlagSet(t *testing.T) {
+func TestSettingsResources(t *testing.T) {
 	for _, tc := range []struct {
-		in   string
-		want int
-		ok   bool
-	}{
-		{in: "4", want: 4, ok: true},
-		{in: "1", want: 1, ok: true},
-		{in: "0"},
-		{in: "-1"},
-		{in: "8GiB"},
-		{in: ""},
-	} {
-		var f intFlag
-		err := f.Set(tc.in)
-		if tc.ok {
-			if err != nil {
-				t.Errorf("Set(%q) = %v, want nil", tc.in, err)
-				continue
-			}
-			if !f.set || f.value != tc.want {
-				t.Errorf("Set(%q) gave %+v, want value %d", tc.in, f, tc.want)
-			}
-			continue
-		}
-		if err == nil {
-			t.Errorf("Set(%q) = nil, want error", tc.in)
-		}
-	}
-}
-
-func TestResolveResources(t *testing.T) {
-	for _, tc := range []struct {
-		name            string
-		settings        string
-		cpus, mem, disk intFlag
-		want            resources
+		name     string
+		settings string
+		want     resources
 	}{
 		{
 			name: "defaults",
@@ -54,17 +24,9 @@ func TestResolveResources(t *testing.T) {
 			want:     resources{cpus: 3, memory: 4, disk: 55},
 		},
 		{
-			name:     "flag overrides one setting",
-			settings: `{"cpus": 3, "memory": 4, "disk": 55}`,
-			cpus:     intFlag{set: true, value: 6},
-			want:     resources{cpus: 6, memory: 4, disk: 55},
-		},
-		{
-			name: "flags only",
-			cpus: intFlag{set: true, value: 8},
-			mem:  intFlag{set: true, value: 16},
-			disk: intFlag{set: true, value: 100},
-			want: resources{cpus: 8, memory: 16, disk: 100},
+			name:     "partial settings",
+			settings: `{"memory": 8}`,
+			want:     resources{cpus: 2, memory: 8, disk: 50},
 		},
 		{
 			name:     "unrelated settings ignored",
@@ -74,10 +36,62 @@ func TestResolveResources(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			withSettings(t, tc.settings)
-			if got := resolveResources(tc.cpus, tc.mem, tc.disk); got != tc.want {
-				t.Errorf("resolveResources() = %+v, want %+v", got, tc.want)
+			if got := settingsResources(); got != tc.want {
+				t.Errorf("settingsResources() = %+v, want %+v", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestResourceFlags drives the same flag wiring as cmdCreate: flags win over
+// settings.json, unset flags keep the settings value.
+func TestResourceFlags(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		settings string
+		argv     []string
+		want     resources
+	}{
+		{
+			name: "no flags keeps defaults",
+			want: resources{cpus: 2, memory: 2, disk: 50},
+		},
+		{
+			name:     "flag overrides one setting",
+			settings: `{"cpus": 3, "memory": 4, "disk": 55}`,
+			argv:     []string{"-cpus", "6"},
+			want:     resources{cpus: 6, memory: 4, disk: 55},
+		},
+		{
+			name: "all flags",
+			argv: []string{"-cpus", "8", "-memory", "16", "-disk", "100"},
+			want: resources{cpus: 8, memory: 16, disk: 100},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withSettings(t, tc.settings)
+			fs := flag.NewFlagSet("create", flag.ContinueOnError)
+			res := settingsResources()
+			fs.IntVar(&res.cpus, "cpus", res.cpus, "")
+			fs.IntVar(&res.memory, "memory", res.memory, "")
+			fs.IntVar(&res.disk, "disk", res.disk, "")
+			if err := fs.Parse(tc.argv); err != nil {
+				t.Fatal(err)
+			}
+			if res != tc.want {
+				t.Errorf("resources = %+v, want %+v", res, tc.want)
+			}
+		})
+	}
+}
+
+func TestResourceFlagRejectsNonInteger(t *testing.T) {
+	fs := flag.NewFlagSet("create", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	memory := 2
+	fs.IntVar(&memory, "memory", memory, "")
+	if err := fs.Parse([]string{"-memory", "8GiB"}); err == nil {
+		t.Error("Parse(-memory 8GiB) = nil, want error")
 	}
 }
 
