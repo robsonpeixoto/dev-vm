@@ -6,7 +6,7 @@ forwards, rootless Docker, zsh + oh-my-zsh, mise, GitHub SSH access.
 ```sh
 go run . create [name]    # create and start the VM
 go run . destroy [name]   # delete it
-go run . list             # list VMs with status and SSH hostname
+go run . list             # list VMs with status, size and SSH hostname
 go run . version          # print the build version
 limactl shell <name>      # open a shell inside
 ```
@@ -70,7 +70,7 @@ release.
    ```
 
    This generates an SSH key, registers it on GitHub, boots the VM
-   (4 CPUs, 16 GiB RAM, 50 GiB disk) and runs provisioning.
+   (2 vCPUs, 2 GiB RAM, 50 GiB disk) and runs provisioning.
 
 2. Optional — bring your dotfiles (bare repo checked out over `$HOME`):
 
@@ -81,7 +81,29 @@ release.
    Put `{"dotfiles": "<repo>"}` in `~/.config/dev-vm/settings.json` to enable
    it for every VM; `--no-dotfiles` skips it.
 
-3. Get in:
+3. Optional — size the VM. `-memory` and `-disk` are plain integers in GiB:
+
+   ```sh
+   go run . create myvm -cpus 8 -memory 16 -disk 100
+   ```
+
+   The same keys work in `~/.config/dev-vm/settings.json` as machine-wide
+   defaults, next to `dotfiles`:
+
+   ```json
+   {
+     "dotfiles": "git@github.com:user/dotfiles.git",
+     "cpus": 4,
+     "memory": 8,
+     "disk": 100
+   }
+   ```
+
+   A flag beats settings.json, which beats the built-in defaults. Size is
+   baked into the instance at create time, so changing it means
+   `go run . destroy myvm && go run . create myvm -cpus …`.
+
+4. Get in:
 
    ```sh
    limactl shell myvm
@@ -89,13 +111,13 @@ release.
    ssh -F ~/.lima/myvm/ssh.config lima-myvm
    ```
 
-4. Check what exists — name, Lima status, SSH hostname:
+5. Check what exists — name, Lima status, size, SSH hostname:
 
    ```sh
    go run . list
    ```
 
-5. Throw it away (deletes the VM, the GitHub key and the local key pair):
+6. Throw it away (deletes the VM, the GitHub key and the local key pair):
 
    ```sh
    go run . destroy myvm

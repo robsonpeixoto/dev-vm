@@ -11,7 +11,8 @@ Lima runs a Linux guest from a YAML template. On macOS the VM type is `vz`
 - `limactl start [--name <name>] <template.yaml>` creates an instance directory
   at `~/.lima/<name>/` and boots it. `--set '<yq expression>'` patches the
   template at creation time (used by `devvm create` to set the
-  `DOTFILES_REPO` param).
+  `DOTFILES_REPO` param and the `.cpus`/`.memory`/`.disk` fields, all in one
+  `|`-joined expression).
 - The template is **flattened at creation**: `base:` templates are merged, and
   external `provision`/`probes` `file:` references are inlined into the stored
   `~/.lima/<name>/lima.yaml`. That file — not the repo template — is the source
@@ -181,6 +182,23 @@ Empty param means the script exits 0 without doing anything.
   `dotfiles.sh` prepends the GitHub stanza back from
   `~/.ssh/lima-github.conf` (same `mode: data` payload,
   `lima/files/ssh-github.conf`); ssh keeps the first value per keyword.
+
+### VM size
+
+`cpus`, `memory` and `disk` are **top-level template fields**, not params, so
+`devvm create` patches them with `.cpus = N | .memory = "NGiB" | .disk = "NGiB"`
+rather than `.param.*`. Resolution order in `resolveResources` (`create.go`):
+`-cpus`/`-memory`/`-disk` flags, then the `cpus`/`memory`/`disk` keys in
+`~/.config/dev-vm/settings.json`, then `defaultResources` (2 vCPUs, 2 GiB,
+50 GiB). The values in `lima/dev-vm.yaml` are documentation only — `--set`
+always overwrites them.
+
+Flags and settings are integers in GiB; anything else is rejected before the VM
+starts. Because the template is flattened at creation, the size is fixed for
+the instance's life: resizing means `limactl edit` or destroy + create.
+
+`go run . list` reads the live `cpus`/`memory`/`disk` back out of
+`limactl list --format json`, where memory and disk are **bytes**.
 
 ### Debugging
 
