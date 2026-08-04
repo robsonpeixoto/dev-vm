@@ -149,6 +149,11 @@ anything, so provision scripts see `LIMA_CIDATA_*`: `LIMA_CIDATA_USER`,
 `LIMA_CIDATA_PLAIN`, `LIMA_CIDATA_PASSWORDLESS_SUDO`, plus `PARAM_*` from
 `param:`. `user` mode additionally gets `XDG_RUNTIME_DIR=/run/user/<uid>`.
 
+They are internal, though: the hostagent scans provision scripts at creation
+time and warns `provisioning scripts should not reference the LIMA_CIDATA
+variables`. Use the Go template variables above (`{{.User}}`, `{{.Home}}`,
+`{{.UID}}`, `{{.Name}}`) instead — `PARAM_*` stays fine.
+
 ### Probes
 
 `probes:` (`mode: readiness`) run as the user after provisioning and gate

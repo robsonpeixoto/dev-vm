@@ -9,4 +9,4 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y zsh git
 
-chsh -s /usr/bin/zsh "$LIMA_CIDATA_USER"
+chsh -s /usr/bin/zsh "{{.User}}"
