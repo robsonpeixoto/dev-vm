@@ -167,11 +167,13 @@ every push to `main` and every pull request. Those are unit tests only — no VM
 is started.
 
 The end-to-end test lives in `e2e_test.go` behind the `e2e` build tag, so
-`go test ./...` never boots a VM. It creates a VM, checks the rootless Docker
-server answers, the login shell is `/usr/bin/zsh` and mise is installed, stops
-and starts the VM, checks Docker again, then destroys it:
+`go test ./...` never boots a VM. It drives the installed `dev-vm` binary, so
+install it first. It creates a VM, checks the rootless Docker server answers,
+the login shell is `/usr/bin/zsh` and mise is installed, stops and starts the
+VM, checks Docker again, then destroys it:
 
 ```sh
+go install .
 go test -tags e2e -timeout 90m -v -run TestVMLifecycle .
 ```
 

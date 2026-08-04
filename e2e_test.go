@@ -4,8 +4,10 @@
 // installed, restart it, destroy it. Behind the e2e build tag because it boots
 // a VM and takes tens of minutes:
 //
+//	go install .
 //	go test -tags e2e -timeout 90m -v -run TestVMLifecycle .
 //
+// It drives the installed dev-vm binary, so `go install .` has to run first.
 // The VM is created with -github-key=false, so the test needs neither gh nor a
 // GitHub token; the GitHub SSH readiness probe is skipped with it.
 package main
@@ -13,7 +15,6 @@ package main
 import (
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -22,11 +23,14 @@ func TestVMLifecycle(t *testing.T) {
 	if _, err := exec.LookPath("limactl"); err != nil {
 		t.Skip("limactl not installed")
 	}
+	devvm, err := exec.LookPath("dev-vm")
+	if err != nil {
+		t.Fatal("dev-vm not on PATH; run: go install .")
+	}
 	name := os.Getenv("DEVVM_E2E_NAME")
 	if name == "" {
 		name = "e2e"
 	}
-	devvm := buildDevVM(t)
 
 	// A failed assertion must not leave the VM behind for the next run.
 	t.Cleanup(func() {
@@ -70,13 +74,6 @@ func checkMise(t *testing.T, name string) {
 	if !strings.Contains(out, "mise") {
 		t.Errorf("mise not installed; mise --version:\n%s", out)
 	}
-}
-
-func buildDevVM(t *testing.T) string {
-	t.Helper()
-	bin := filepath.Join(t.TempDir(), "devvm")
-	mustRun(t, "go", "build", "-o", bin, ".")
-	return bin
 }
 
 // guest runs a command inside the VM. The repo directory is not mounted (the

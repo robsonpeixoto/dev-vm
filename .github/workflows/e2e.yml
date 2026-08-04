@@ -23,6 +23,10 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      # The test drives the installed dev-vm binary; setup-go puts
+      # $(go env GOPATH)/bin on PATH.
+      - run: go install .
+      - run: dev-vm version
       - run: brew install lima
       - run: limactl --version
       # No gh and no GitHub token: the test creates the VM with
