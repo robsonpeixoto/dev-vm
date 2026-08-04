@@ -19,11 +19,11 @@ _dev_vm() {
 			return
 			;;
 		esac
-		COMPREPLY=($(compgen -W "-create-ssh-key= -dotfiles -no-dotfiles -cpus -memory -disk -help" -- "$cur"))
+		COMPREPLY=($(compgen -W "-create-ssh-key= -github-key= -dotfiles -no-dotfiles -cpus -memory -disk -help" -- "$cur"))
 		;;
 	destroy)
 		if [ "${cur:0:1}" = "-" ]; then
-			COMPREPLY=($(compgen -W "-help" -- "$cur"))
+			COMPREPLY=($(compgen -W "-github-key= -help" -- "$cur"))
 		else
 			COMPREPLY=($(compgen -W "$("${COMP_WORDS[0]}" __names 2>/dev/null)" -- "$cur"))
 		fi

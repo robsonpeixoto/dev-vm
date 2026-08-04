@@ -9,11 +9,12 @@ import (
 
 const destroyUsage = `Destroy a Lima dev VM and its GitHub SSH access.
 
-Usage: devvm destroy [name]
+Usage: devvm destroy [name] [-github-key=false]
 
 - Deletes the Lima VM <name>.
 - Deletes the GitHub key recorded in ~/.config/dev-vm/state.json plus any
-  key titled <name>, via gh.
+  key titled <name>, via gh. -github-key=false skips that, for VMs created
+  with -github-key=false: gh is never called.
 - Removes the key pair at ~/.config/dev-vm/keys/<name>.
 - Drops the VM entry from the state file.
 
@@ -28,13 +29,20 @@ func cmdDestroy(argv []string) {
 		fmt.Fprint(os.Stderr, destroyUsage)
 		fs.PrintDefaults()
 	}
+	var githubKey bool
+	fs.BoolVar(&githubKey, "github-key", true,
+		"delete the GitHub key; -github-key=false leaves GitHub alone")
 	name := parseArgs(fs, argv)
 
 	checkName(name)
 	entry := getVM(name)
 
 	deleteVM(name)
-	deleteGitHubKeys(name, entry)
+	if githubKey {
+		deleteGitHubKeys(name, entry)
+	} else {
+		fmt.Println("skipping GitHub key deletion")
+	}
 	deleteKeyFiles(name, entry)
 
 	if dropVM(name) {

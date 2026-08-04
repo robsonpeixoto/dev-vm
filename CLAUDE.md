@@ -167,6 +167,13 @@ answering `docker info`, and `ssh -T git@github.com` reporting `successfully
 authenticated` (that command exits non-zero even on success, so the probe
 matches on output).
 
+The GitHub probe is gated on `{{.Param.GITHUB_KEY}}`: `devvm create
+-github-key=false` sets that param to `"false"` (via `--set`, like
+`DOTFILES_REPO`), skips every `gh` call, and the probe exits 0 without
+checking, because no key was registered. `devvm destroy -github-key=false`
+likewise skips the key deletion. `e2e_test.go` (build tag `e2e`) uses this to
+run the whole create/stop/start/destroy lifecycle with no GitHub token.
+
 ### Dotfiles
 
 `go run . create -dotfiles REPO` sets the `DOTFILES_REPO` param (via
