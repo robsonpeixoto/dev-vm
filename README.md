@@ -7,6 +7,7 @@ forwards, rootless Docker, zsh + oh-my-zsh, mise, GitHub SSH access.
 go run . create [name]    # create and start the VM
 go run . destroy [name]   # delete it
 go run . list             # list VMs with status, size and SSH hostname
+go run . completion zsh   # print the shell completion script
 go run . version          # print the build version
 limactl shell <name>      # open a shell inside
 ```
@@ -125,6 +126,31 @@ release.
 
 State lives in `~/.config/dev-vm/state.json`, keys in
 `~/.config/dev-vm/keys/`.
+
+## Shell completion
+
+`dev-vm completion <bash|zsh|fish>` prints the completion script for that
+shell. It completes subcommands, the `create` flags, and the recorded VM
+names for `destroy`.
+
+Try it in the current shell:
+
+```sh
+source <(dev-vm completion bash)
+source <(dev-vm completion zsh)
+dev-vm completion fish | source
+```
+
+Install it permanently:
+
+```sh
+dev-vm completion bash > /usr/local/etc/bash_completion.d/dev-vm
+dev-vm completion zsh > "${fpath[1]}/_dev-vm"
+dev-vm completion fish > ~/.config/fish/completions/dev-vm.fish
+```
+
+The zsh script needs `compinit` to have run first. Names come from the hidden
+`dev-vm __names` command, which prints the VMs in the state file.
 
 ## Releasing
 
