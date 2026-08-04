@@ -73,6 +73,11 @@ release.
    This generates an SSH key, registers it on GitHub, boots the VM
    (2 vCPUs, 2 GiB RAM, 50 GiB disk) and runs provisioning.
 
+   `-github-key=false` keeps the key local: `gh` is never called and the
+   GitHub SSH readiness probe is skipped, so git over SSH does not work in the
+   guest. Destroy such a VM with `go run . destroy myvm -github-key=false`,
+   which also leaves GitHub alone.
+
 2. Optional — bring your dotfiles (bare repo checked out over `$HOME`):
 
    ```sh
@@ -155,10 +160,29 @@ The release tarballs also carry the scripts in `completions/`.
 The zsh script needs `compinit` to have run first. Names come from the hidden
 `dev-vm __names` command, which prints the VMs in the state file.
 
-## Releasing
+## Tests
 
 `.github/workflows/ci.yml` runs `gofmt`, `go vet`, `go build` and `go test` on
-every push to `main` and every pull request.
+every push to `main` and every pull request. Those are unit tests only — no VM
+is started.
+
+The end-to-end test lives in `e2e_test.go` behind the `e2e` build tag, so
+`go test ./...` never boots a VM. It creates a VM, checks the rootless Docker
+server answers, the login shell is `/usr/bin/zsh` and mise is installed, stops
+and starts the VM, checks Docker again, then destroys it:
+
+```sh
+go test -tags e2e -timeout 90m -v -run TestVMLifecycle .
+```
+
+The VM is named `e2e` (`DEVVM_E2E_NAME` overrides it) and is created with
+`-github-key=false`, so no `gh` login and no token are needed.
+
+`.github/workflows/e2e.yml` runs it on every push on `macos-15-intel`: Intel
+macOS runners are bare metal, so `vz` works there, while the arm64 macOS
+runners are themselves VMs and cannot nest.
+
+## Releasing
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`, which cross-compiles
 `linux/{amd64,arm64}` and `darwin/{amd64,arm64}`, injects the tag into
@@ -196,6 +220,9 @@ from an earlier create.
 - Guest: the private key is uploaded to `~/.ssh/id_ed25519`; `~/.ssh/config`
   pins it for github.com with `IdentitiesOnly yes`.
 - `destroy` deletes the GitHub key, the local pair, and the state entry.
+- `-github-key=false` on `create` and `destroy` skips every `gh` call. The key
+  pair is still generated and uploaded to the guest, but nothing on GitHub
+  accepts it — used by the end-to-end test, which has no token.
 
 ## Provisioning steps
 

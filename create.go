@@ -11,13 +11,16 @@ import (
 
 const createUsage = `Create an isolated Lima dev VM with SSH access to GitHub.
 
-Usage: devvm create [name] [-create-ssh-key=false] [-dotfiles REPO|-no-dotfiles]
+Usage: devvm create [name] [-create-ssh-key=false] [-github-key=false]
+                    [-dotfiles REPO|-no-dotfiles]
                     [-cpus N] [-memory GiB] [-disk GiB]
 
 - Generates a fresh ed25519 key pair at ~/.config/dev-vm/keys/<name> (no
   passphrase) on every create; -create-ssh-key=false reuses the existing pair.
 - Registers the public key on GitHub with title <name> via gh, replacing
   any key recorded in the state file or sharing the same title.
+  -github-key=false keeps the key local: gh is never called and the readiness
+  probe for GitHub SSH is skipped, so git over SSH does not work in the guest.
 - Starts the VM from the embedded lima/dev-vm.yaml; the template uploads the
   private key and ssh config into the guest, and provisioning fetches
   known_hosts.
@@ -50,10 +53,14 @@ func cmdCreate(argv []string) {
 		fs.PrintDefaults()
 	}
 	var createSSHKey bool
+	var githubKey bool
 	var dotfilesRepo string
 	var noDotfiles bool
 	fs.BoolVar(&createSSHKey, "create-ssh-key", true,
 		"create and register a new key; -create-ssh-key=false reuses the existing key")
+	fs.BoolVar(&githubKey, "github-key", true,
+		"register the public key on GitHub; -github-key=false keeps it local and "+
+			"skips the GitHub SSH readiness probe")
 	fs.StringVar(&dotfilesRepo, "dotfiles", "",
 		"clone REPO as a bare repo and check it out over the guest $HOME; "+
 			"unset, use the \"dotfiles\" entry in settings.json")
@@ -80,22 +87,25 @@ func cmdCreate(argv []string) {
 		}
 		fmt.Printf("reusing key %s\n", key)
 	} else {
-		checkScopes()
+		if githubKey {
+			checkScopes()
+		}
 		createKey(name, key, pub)
-		keyID := registerKey(name, pub)
-		putVM(name, map[string]any{
-			"github_key_id":    keyID,
-			"github_key_title": name,
-			"private_key":      key,
-			"public_key":       pub,
-		})
+		fields := map[string]any{"private_key": key, "public_key": pub}
+		if githubKey {
+			fields["github_key_id"] = registerKey(name, pub)
+			fields["github_key_title"] = name
+		} else {
+			fmt.Println("skipping GitHub key registration")
+		}
+		putVM(name, fields)
 	}
 
 	if dotfiles != "" {
 		fmt.Printf("installing dotfiles from %s\n", dotfiles)
 	}
 	fmt.Printf("VM size %d vCPU, %dGiB RAM, %dGiB disk\n", res.cpus, res.memory, res.disk)
-	startVM(name, dotfiles, res, key)
+	startVM(name, dotfiles, res, key, githubKey)
 	putVM(name, map[string]any{
 		"template":    "embedded:lima/dev-vm.yaml",
 		"started_at":  now(),
@@ -214,7 +224,7 @@ func registerKey(name, pub string) int64 {
 // startVM materializes the embedded template tree into a temp directory —
 // limactl resolves provision file.url paths relative to the template — drops
 // the private key at tmp/default where the template expects it, and boots.
-func startVM(name, dotfiles string, res resources, key string) {
+func startVM(name, dotfiles string, res resources, key string, githubKey bool) {
 	dir, err := os.MkdirTemp("", "dev-vm-")
 	if err != nil {
 		die("cannot create temp dir: %v", err)
@@ -252,7 +262,8 @@ func startVM(name, dotfiles string, res resources, key string) {
 
 	limactlRun("start", "--tty=false", "--name", name,
 		"--set", fmt.Sprintf(
-			`.cpus = %d | .memory = "%dGiB" | .disk = "%dGiB" | .param.DOTFILES_REPO = %q`,
-			res.cpus, res.memory, res.disk, dotfiles),
+			`.cpus = %d | .memory = "%dGiB" | .disk = "%dGiB" | `+
+				`.param.DOTFILES_REPO = %q | .param.GITHUB_KEY = "%t"`,
+			res.cpus, res.memory, res.disk, dotfiles, githubKey),
 		filepath.Join(dir, "dev-vm.yaml"))
 }

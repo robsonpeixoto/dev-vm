@@ -1,0 +1,35 @@
+name: e2e
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  vm:
+    name: VM lifecycle
+    # Intel macOS runners are bare metal, so Virtualization.framework (vz)
+    # works; the arm64 macOS runners are themselves VMs and cannot nest.
+    runs-on: macos-15-intel
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: brew install lima
+      - run: limactl --version
+      # No gh and no GitHub token: the test creates the VM with
+      # -github-key=false.
+      - run: go test -tags e2e -timeout 80m -v -run TestVMLifecycle .
+      - if: failure()
+        name: Lima logs
+        run: |
+          tail -n 200 ~/.lima/e2e/ha.stderr.log || true
+          tail -n 200 ~/.lima/e2e/serial*.log || true

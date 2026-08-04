@@ -25,6 +25,9 @@ param:
   # Dotfiles bare repo to check out over the guest $HOME. Empty disables it;
   # devvm create sets it from -dotfiles or ~/.config/dev-vm/settings.json.
   DOTFILES_REPO: ""
+  # "false" when devvm create ran with -github-key=false: the key was never
+  # registered on GitHub, so the GitHub SSH readiness probe cannot pass.
+  GITHUB_KEY: "true"
 portForwards:
 - ignore: true
   guestIP: "127.0.0.1"
@@ -136,6 +139,8 @@ probes:
   script: |
     #!/bin/bash
     set -eu -o pipefail
+    # No key on GitHub means nothing to probe (devvm create -github-key=false).
+    [ "{{.Param.GITHUB_KEY}}" = "true" ] || exit 0
     # `ssh -T git@github.com` exits 1 even on success, so match the greeting.
     if ! timeout 60s bash -c 'until ssh -o BatchMode=yes -T git@github.com 2>&1 | grep -q "successfully authenticated"; do sleep 3; done'; then
       echo >&2 "github.com did not accept the ssh key"

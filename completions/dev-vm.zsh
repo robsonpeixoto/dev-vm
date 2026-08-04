@@ -30,6 +30,7 @@ _dev_vm() {
 		create)
 			_arguments \
 				'-create-ssh-key=-[create and register a new key]:bool:(true false)' \
+				'-github-key=-[register the public key on GitHub]:bool:(true false)' \
 				'-dotfiles[bare repo to check out over the guest $HOME]:repo:' \
 				'-no-dotfiles[skip dotfiles even when settings.json configures them]' \
 				'-cpus[vCPUs for the VM]:count:' \
@@ -38,7 +39,9 @@ _dev_vm() {
 				'1:name:'
 			;;
 		destroy)
-			_arguments '1:name:_dev_vm_names'
+			_arguments \
+				'-github-key=-[delete the GitHub key]:bool:(true false)' \
+				'1:name:_dev_vm_names'
 			;;
 		completion)
 			_arguments '1:shell:(bash zsh fish)'
