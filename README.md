@@ -7,6 +7,7 @@ forwards, rootless Docker, zsh + oh-my-zsh, mise, GitHub SSH access.
 go run . create [name]    # create and start the VM
 go run . destroy [name]   # delete it
 go run . list             # list VMs with status, size and SSH hostname
+go run . completion zsh   # print the shell completion script
 go run . version          # print the build version
 limactl shell <name>      # open a shell inside
 ```
@@ -126,6 +127,34 @@ release.
 State lives in `~/.config/dev-vm/state.json`, keys in
 `~/.config/dev-vm/keys/`.
 
+## Shell completion
+
+`dev-vm completion <bash|zsh|fish>` prints the completion script for that
+shell. It completes subcommands, the `create` flags, and the recorded VM
+names for `destroy`.
+
+Try it in the current shell:
+
+```sh
+source <(dev-vm completion bash)
+source <(dev-vm completion zsh)
+dev-vm completion fish | source
+```
+
+Homebrew installs the three scripts for you, so `brew install dev-vm` needs no
+extra step. Otherwise install one permanently:
+
+```sh
+dev-vm completion bash > /usr/local/etc/bash_completion.d/dev-vm
+dev-vm completion zsh > "${fpath[1]}/_dev-vm"
+dev-vm completion fish > ~/.config/fish/completions/dev-vm.fish
+```
+
+The release tarballs also carry the scripts in `completions/`.
+
+The zsh script needs `compinit` to have run first. Names come from the hidden
+`dev-vm __names` command, which prints the VMs in the state file.
+
 ## Releasing
 
 `.github/workflows/ci.yml` runs `gofmt`, `go vet`, `go build` and `go test` on
@@ -133,8 +162,9 @@ every push to `main` and every pull request.
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`, which cross-compiles
 `linux/{amd64,arm64}` and `darwin/{amd64,arm64}`, injects the tag into
-`main.version` with `-ldflags -X`, and publishes the four tarballs plus
-`checksums.txt` on a GitHub Release with generated notes:
+`main.version` with `-ldflags -X`, and publishes the four tarballs (each with
+`README.md` and `completions/`) plus `checksums.txt` on a GitHub Release with
+generated notes:
 
 ```sh
 git tag -a v0.2.0 -m v0.2.0

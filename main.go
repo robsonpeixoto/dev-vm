@@ -16,6 +16,7 @@ Usage:
                 [-cpus N] [-memory GiB] [-disk GiB]
   dev-vm destroy [name]
   dev-vm list
+  dev-vm completion <bash|zsh|fish>
   dev-vm version
 
 Run a command with -help for details.
@@ -33,6 +34,10 @@ func main() {
 		cmdDestroy(os.Args[2:])
 	case "list":
 		cmdList(os.Args[2:])
+	case "completion":
+		cmdCompletion(os.Args[2:])
+	case "__names":
+		cmdNames()
 	case "version":
 		fmt.Println(version)
 	case "help", "-h", "-help":
