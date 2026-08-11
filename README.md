@@ -5,6 +5,8 @@ forwards, rootless Docker, zsh + oh-my-zsh, mise, GitHub SSH access.
 
 ```sh
 go run . create [name]    # create and start the VM
+go run . start [name]     # boot a stopped VM
+go run . stop [name]      # shut it down, keeping the disk
 go run . destroy [name]   # delete it (confirms first; -force skips)
 go run . list             # list VMs with status, size and SSH hostname
 go run . completion zsh   # print the shell completion script
@@ -118,7 +120,18 @@ release.
    go run . list
    ```
 
-6. Throw it away (deletes the VM, the GitHub key and the local key pair). It
+6. Stop and start it. A host reboot leaves every VM stopped; `start` boots it
+   again, re-running provisioning and the readiness probes:
+
+   ```sh
+   go run . stop myvm
+   go run . start myvm
+   ```
+
+   `stop -force` kills the VM instead of shutting the guest down gracefully —
+   faster, but unwritten guest data is lost.
+
+7. Throw it away (deletes the VM, the GitHub key and the local key pair). It
    asks first — type the VM name back to go ahead, anything else aborts:
 
    ```sh
@@ -139,8 +152,8 @@ State lives in `~/.config/dev-vm/state.json`, keys in
 ## Shell completion
 
 `dev-vm completion <bash|zsh|fish>` prints the completion script for that
-shell. It completes subcommands, the `create` and `destroy` flags, and the
-recorded VM names for `destroy`.
+shell. It completes subcommands, the `create`, `stop` and `destroy` flags, and
+the recorded VM names for `start`, `stop` and `destroy`.
 
 Try it in the current shell:
 

@@ -26,6 +26,24 @@ func TestCompletionScripts(t *testing.T) {
 	}
 }
 
+// TestCompletionCoversCommands guards against a new subcommand landing in
+// main.go without reaching the three completion scripts.
+func TestCompletionCoversCommands(t *testing.T) {
+	for _, shell := range []string{"bash", "zsh", "fish"} {
+		t.Run(shell, func(t *testing.T) {
+			script, err := completionScripts.ReadFile("completions/dev-vm." + shell)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, cmd := range []string{"create", "start", "stop", "destroy", "list"} {
+				if !strings.Contains(string(script), cmd) {
+					t.Errorf("dev-vm.%s does not mention %q", shell, cmd)
+				}
+			}
+		})
+	}
+}
+
 func TestCompletionRejectsUnknownShell(t *testing.T) {
 	if _, err := completionScripts.ReadFile("completions/dev-vm.powershell"); err == nil {
 		t.Error("ReadFile(dev-vm.powershell) = nil error, want error")

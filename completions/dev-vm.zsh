@@ -12,6 +12,8 @@ _dev_vm() {
 	local -a commands
 	commands=(
 		'create:create a dev VM'
+		'start:start a stopped dev VM'
+		'stop:stop a running dev VM'
 		'destroy:destroy a dev VM and its GitHub key'
 		'list:list dev VMs with their SSH hostname'
 		'completion:print the shell completion script'
@@ -37,9 +39,17 @@ _dev_vm() {
 				'-disk[disk size in GiB]:gib:' \
 				'1:name:'
 			;;
+		start)
+			_arguments '1:name:_dev_vm_names'
+			;;
 		destroy)
 			_arguments \
 				'-force[skip the confirmation prompt]' \
+				'1:name:_dev_vm_names'
+			;;
+		stop)
+			_arguments \
+				'-force[kill the VM instead of shutting the guest down gracefully]' \
 				'1:name:_dev_vm_names'
 			;;
 		completion)

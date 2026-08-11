@@ -143,6 +143,13 @@ func vmExists(name string) bool {
 	return false
 }
 
+// requireVM stops the caller when Lima has no instance by that name.
+func requireVM(name, verb string) {
+	if !vmExists(name) {
+		die("no VM %q to %s; run: devvm create %s", name, verb, name)
+	}
+}
+
 func gh(args ...string) string {
 	cmd := exec.Command("gh", args...)
 	var stderr strings.Builder
