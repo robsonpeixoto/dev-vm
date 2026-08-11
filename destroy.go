@@ -15,17 +15,20 @@ const destroyUsage = `Destroy a Lima dev VM and its GitHub SSH access.
 
 Usage: devvm destroy [name] [-force]
 
-- Asks for confirmation first: the VM name has to be typed back. -force
+- Checks the gh token carries the admin:public_key scope, before removing
+  anything, so an auth problem costs nothing.
+- Asks for confirmation next: the VM name has to be typed back. -force
   skips the prompt, and is required when stdin is not a terminal.
-- Deletes the Lima VM <name>.
 - Deletes the GitHub key recorded in ~/.config/dev-vm/state.json plus any key
   holding the title recorded there (dev-vm/<host>/<name>, or the bare <name>
   for VMs created before titles were qualified), via gh.
 - Removes the key pair at ~/.config/dev-vm/keys/<name>.
+- Deletes the Lima VM <name>.
 - Drops the VM entry from the state file.
 
-Each step is skipped with a message when there is nothing to remove, so a
-partial destroy can be re-run.
+The recoverable work comes first and the VM disk last, so a failure talking to
+GitHub leaves the VM in place. Each step is skipped with a message when there
+is nothing to remove, so a partial destroy can be re-run.
 
 `
 
@@ -41,6 +44,7 @@ func cmdDestroy(argv []string) {
 	name := parseArgs(fs, argv)
 
 	checkName(name)
+	checkScopes()
 	if !force {
 		if !isTerminal(os.Stdin) {
 			die("destroy needs a terminal to confirm; rerun with: devvm destroy %s -force", name)
@@ -51,9 +55,9 @@ func cmdDestroy(argv []string) {
 	}
 	entry := getVM(name)
 
-	deleteVM(name)
 	deleteGitHubKeys(name, entry)
 	deleteKeyFiles(name, entry)
+	deleteVM(name)
 
 	if dropVM(name) {
 		fmt.Printf("removed %s from %s\n", name, stateFile)
@@ -100,7 +104,6 @@ func deleteGitHubKeys(name string, entry map[string]any) {
 	if title == "" {
 		title = name
 	}
-	checkScopes()
 	var targets []ghKey
 	for _, k := range listKeys() {
 		if k.Title == title || k.ID == previous {
