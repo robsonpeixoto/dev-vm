@@ -71,6 +71,22 @@ provision:
   owner: "root:root"
   permissions: "644"
   overwrite: true
+# Unattended security upgrades for the whole OS; the script below installs the
+# package and enables the timers that read these.
+- mode: data
+  file:
+    url: files/apt/20auto-upgrades
+  path: /etc/apt/apt.conf.d/20auto-upgrades
+  owner: "root:root"
+  permissions: "644"
+  overwrite: true
+- mode: data
+  file:
+    url: files/apt/52dev-vm-unattended-upgrades
+  path: /etc/apt/apt.conf.d/52dev-vm-unattended-upgrades
+  owner: "root:root"
+  permissions: "644"
+  overwrite: true
 # Maintenance cron: one entry every 6 hours (not at boot — provisioning
 # already installs the latest packages on each boot), running the jobs in
 # /usr/local/lib/dev-vm/cron.d sequentially so they never fight for the dpkg
@@ -105,6 +121,9 @@ provision:
 - mode: system
   file:
     url: scripts/mise-system.sh
+- mode: system
+  file:
+    url: scripts/unattended-upgrades-system.sh
 # known_hosts is user state: `boot` mode would run as root, before this user
 # exists, and write /root/.ssh/known_hosts instead.
 - mode: user

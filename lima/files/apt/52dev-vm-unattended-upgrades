@@ -1,0 +1,31 @@
+// dev-vm: security patches for the whole OS. This VM is long-lived and holds
+// a GitHub private key, so kernel/openssl/openssh fixes cannot wait for the
+// operator to remember apt-get upgrade.
+//
+// Numbered 52 so it is read after the packaged 50unattended-upgrades and wins
+// on every key it sets.
+//
+// Only the security pockets: a dev VM that silently moves to new feature
+// versions of everything is a VM whose breakage is impossible to date. The
+// Docker packages are deliberately not listed here — Docker's apt repo
+// publishes no security suite for unattended-upgrades to match, so they keep
+// their own updater in /usr/local/lib/dev-vm/cron.d/10-update-docker.
+Unattended-Upgrade::Allowed-Origins {
+        "${distro_id}:${distro_codename}-security";
+        "${distro_id}ESMApps:${distro_codename}-apps-security";
+        "${distro_id}ESM:${distro_codename}-infra-security";
+};
+
+// Reclaim the disk old kernels and orphaned dependencies would otherwise eat
+// on a VM nobody reinstalls.
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+
+// Never reboot on its own: the VM is a workspace with unsaved work and
+// running containers in it. Restarting it (limactl stop/start) applies a
+// pending kernel.
+Unattended-Upgrade::Automatic-Reboot "false";
+
+// A VM has no battery; without this the run is skipped whenever the host
+// reports being on battery.
+Unattended-Upgrade::OnlyOnACPower "false";
