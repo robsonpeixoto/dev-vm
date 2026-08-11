@@ -38,7 +38,9 @@ _dev_vm() {
 				'1:name:'
 			;;
 		destroy)
-			_arguments '1:name:_dev_vm_names'
+			_arguments \
+				'-force[skip the confirmation prompt]' \
+				'1:name:_dev_vm_names'
 			;;
 		completion)
 			_arguments '1:shell:(bash zsh fish)'
