@@ -226,6 +226,38 @@ name for VMs created before titles were qualified.
 - `destroy` deletes the GitHub key, the local pair, and the state entry,
   after confirming the VM name (`-force` skips the prompt).
 
+## GitHub host keys
+
+The other half of the SSH trust: github.com's **host** keys are pinned, not
+learned. `lima/files/github-known-hosts` holds one plain host-key line per key
+type published by <https://api.github.com/meta> (`ssh_keys`), and a `mode: data`
+entry copies it to `/etc/ssh/ssh_known_hosts` in the guest — the path ssh reads
+by default, so nothing has to point at it.
+
+It lives in `/etc/ssh`, root-owned, rather than in `~/.ssh/known_hosts`, for two
+reasons: a dotfiles checkout writes only inside `$HOME` and so can never replace
+it, and `~/.ssh/known_hosts` stays the user's own file for every other host it
+collects. The github.com stanza adds `StrictHostKeyChecking yes` (a changed key
+is a hard failure, never a prompt) and `CheckHostIP no` (GitHub's IPs rotate;
+only the name is verified — OpenSSH's own default since 8.5).
+
+Earlier versions ran `ssh-keyscan github.com` on every boot, which meant
+trusting whatever key answered at that moment. Nothing scans now.
+
+**When GitHub rotates a host key** (announced on the GitHub blog; the January
+2023 RSA rotation is the precedent), git over SSH in the guest stops working
+with a host key verification failure. Refresh the pin and recreate the VM:
+
+```sh
+curl -s https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com \(.)"'
+# replace the key lines in lima/files/github-known-hosts with that output
+ssh-keygen -l -f lima/files/github-known-hosts   # compare with .ssh_key_fingerprints
+go run . destroy <name> && go run . create <name>
+```
+
+The file is embedded in the binary, so a released `dev-vm` needs a new release
+to carry new keys; `go run .` picks the edit up immediately.
+
 ## Staying patched
 
 Two updaters, split by what their repo publishes:
@@ -260,7 +292,8 @@ is flattened at create time, so after editing `lima/dev-vm.yaml` or
 Order: data files, then system scripts (root), then user scripts (guest login
 user), then readiness probes gate `limactl start`.
 
-1. **Data files** — GitHub key + ssh config, the global `DOCKER_HOST` snippet
+1. **Data files** — GitHub key + ssh config, the pinned github.com host keys in
+   `/etc/ssh/ssh_known_hosts`, the global `DOCKER_HOST` snippet
    (`/etc/profile.d/docker-host.sh`), the unattended-upgrades policy in
    `/etc/apt/apt.conf.d/`, and the maintenance cron: the runner
    `/usr/local/sbin/dev-vm-cron`, the Docker updater
@@ -281,22 +314,21 @@ user), then readiness probes gate `limactl start`.
    openssl, openssh) land without anyone asking. Policy lives in
    `/etc/apt/apt.conf.d/52dev-vm-unattended-upgrades`: security pockets only,
    no automatic reboot, unused kernels and dependencies removed.
-6. **`ssh-known-hosts.sh`** — rewrites `~/.ssh/known_hosts` from live
-   `ssh-keyscan github.com` output.
-7. **`omz-user.sh`** — installs oh-my-zsh (skipped if `~/.oh-my-zsh` exists).
-8. **`dotfiles.sh`** — clones the bare repo to `~/.dotfiles`, checks it out
+6. **`omz-user.sh`** — installs oh-my-zsh (skipped if `~/.oh-my-zsh` exists).
+7. **`dotfiles.sh`** — clones the bare repo to `~/.dotfiles`, checks it out
    over `$HOME` (clobbered files move to `~/tmp/config-backup`), and prepends
    the GitHub ssh stanza back onto `~/.ssh/config`. No-op without
    `DOTFILES_REPO`.
-9. **`docker-user.sh`** — `dockerd-rootless-setuptool.sh install`, selects the
+8. **`docker-user.sh`** — `dockerd-rootless-setuptool.sh install`, selects the
    `rootless` context.
-10. **`mise-user.sh`** — activates mise in `~/.zshrc` (unless the oh-my-zsh
+9. **`mise-user.sh`** — activates mise in `~/.zshrc` (unless the oh-my-zsh
    mise plugin already does), `mise trust --all`, `mise install`.
 
 ```mermaid
 flowchart TD
     subgraph data["data files (copied by root)"]
         d1["~/.ssh/id_ed25519 + config + lima-github.conf<br>GitHub SSH access"]
+        d5["/etc/ssh/ssh_known_hosts<br>pinned github.com host keys"]
         d2["/etc/profile.d/docker-host.sh<br>DOCKER_HOST for libraries"]
         d3["apt.conf.d/20auto-upgrades + 52dev-vm-unattended-upgrades<br>security-only upgrade policy"]
         d4["dev-vm-cron + cron.d/10-update-docker<br>sequential jobs every 6h"]
@@ -310,7 +342,6 @@ flowchart TD
     end
 
     subgraph user["user scripts (login user)"]
-        u1["ssh-known-hosts.sh<br>pin github.com host keys"]
         u2["omz-user.sh<br>install oh-my-zsh"]
         u3["dotfiles.sh<br>check out dotfiles over $HOME"]
         u4["docker-user.sh<br>set up rootless Docker daemon"]
@@ -325,6 +356,6 @@ flowchart TD
     data --> system
     s1 --> s2 --> s3 --> s4
     system --> user
-    u1 --> u2 --> u3 --> u4 --> u5
+    u2 --> u3 --> u4 --> u5
     user --> probes
 ```

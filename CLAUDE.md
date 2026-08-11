@@ -84,8 +84,8 @@ Notes per mode:
 - **`boot`** — runs before mounts, before packages, before the network is
   necessarily up. Only for things that must precede everything else.
   This repo uses no `boot` entry: it runs as root before the guest login user
-  exists, so anything writing into `{{.Home}}` (`ssh-known-hosts.sh`, for one)
-  would land in `/root` instead. Use `user` mode for that.
+  exists, so anything writing into `{{.Home}}` (`dotfiles.sh`, for one) would
+  land in `/root` instead. Use `user` mode for that.
 - **`dependency`** — for adding package repos/packages before Lima installs
   its own dependencies. Set `skipDefaultDependencyResolution: true` on at
   least one entry to suppress Lima's default package installation entirely.
@@ -165,7 +165,31 @@ actually being up, rather than sleeping inside a provision script. Only
 This repo probes the two things the VM exists for: the rootless Docker daemon
 answering `docker info`, and `ssh -T git@github.com` reporting `successfully
 authenticated` (that command exits non-zero even on success, so the probe
-matches on output).
+matches on output). The ssh probe needs no keyscan: host-key verification
+reads the pinned `/etc/ssh/ssh_known_hosts` written by `mode: data`, long
+before any probe runs.
+
+### GitHub host keys
+
+github.com's host keys are **pinned**, never scanned. `lima/files/github-known-hosts`
+carries one plain host-key line per key type from <https://api.github.com/meta>
+(`ssh_keys`), and a `mode: data` entry copies it to `/etc/ssh/ssh_known_hosts`,
+the path ssh consults by default (`GlobalKnownHostsFile`) — no ssh_config
+keyword points at it.
+
+- Global and root-owned on purpose: a dotfiles checkout only writes inside
+  `$HOME`, so it cannot replace the pin, and `~/.ssh/known_hosts` is left alone
+  as the user's own file.
+- `lima/files/ssh-github.conf` backs the pin with `StrictHostKeyChecking yes`
+  (a changed key fails instead of prompting) and `CheckHostIP no` (GitHub's IPs
+  rotate, so verify the name only; that is OpenSSH's default since 8.5, and it
+  is why no IP-keyed or hashed entries are shipped).
+- There is no keyscan fallback and no param to re-enable one: a fallback would
+  reopen exactly the trust-on-first-use hole the pin closes.
+- Rotation is a file edit, not code: refresh the key lines from the API,
+  check them with `ssh-keygen -l -f lima/files/github-known-hosts` against
+  `.ssh_key_fingerprints` from the same endpoint, then recreate the VM. Also
+  see README.md, "GitHub host keys".
 
 ### Dotfiles
 
@@ -229,6 +253,9 @@ the instance's life: resizing means `limactl edit` or destroy + create.
 - Secrets and config files go through `mode: data` with explicit `owner` and
   `permissions`, not `echo` or a heredoc inside a script. Static payloads live
   in `lima/files/`, referenced with `file.url` like the scripts.
+- Trust material is pinned in `lima/files/`, never fetched from the network at
+  boot: the github.com host keys ship as `files/github-known-hosts` (see
+  "GitHub host keys"), so no provision script runs `ssh-keyscan` or curls a key.
 - OS security patching is `unattended-upgrades`, not a cron job:
   `scripts/unattended-upgrades-system.sh` installs it and enables the
   `apt-daily` timers, and the policy lives in two `mode: data` files under
