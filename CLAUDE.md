@@ -207,6 +207,25 @@ the instance's life: resizing means `limactl edit` or destroy + create.
 `go run . list` reads the live `cpus`/`memory`/`disk` back out of
 `limactl list --format json`, where memory and disk are **bytes**.
 
+### Guest OS pin
+
+`base:` in `lima/dev-vm.yaml` names one release —
+`template:_images/ubuntu-26.04` — and never `template:_images/ubuntu-lts`.
+`ubuntu-lts.yaml` is a **symlink shipped inside the installed Lima**
+(in v2.2.0 it points at `ubuntu-26.04.yaml`), so it resolves against whichever
+Lima is on the host: a Lima upgrade would move new VMs to the next LTS with no
+change in this repo.
+
+- Verify a template name without booting anything — it must exist as
+  `_images/ubuntu-XX.YY.yaml` in `$(brew --prefix lima)/share/lima/templates/`
+  (or under `templates/_images` at the matching upstream tag).
+- `base` is merged at creation, so changing the pin affects only VMs created
+  afterwards; existing ones keep their release for life.
+- The bump procedure and its new-LTS checklist (boot, docker probe, github
+  probe) live in the "Guest OS" section of README.md. Gate on Docker's apt repo
+  carrying the new codename — `docker-system.sh` derives it from the guest's
+  `VERSION_CODENAME`, so bumping first breaks provisioning at `apt-get update`.
+
 ### Debugging
 
 - Host: `~/.lima/<name>/ha.stderr.log`, `serial*.log`.

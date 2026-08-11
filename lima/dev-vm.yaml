@@ -4,8 +4,11 @@
 #   limactl shell <name>            # get IP: ip -4 addr
 #   limactl delete -f <name>
 minimumLimaVersion: "2.0.0"
+# Pinned release, not template:_images/ubuntu-lts: that name is a symlink inside
+# the installed Lima, so it floats and a Lima upgrade would move new VMs to the
+# next LTS on its own. See "Guest OS" in README.md before bumping this.
 base:
-- template:_images/ubuntu-lts
+- template:_images/ubuntu-26.04
 vmType: vz
 # devvm create overrides these from -cpus/-memory/-disk or settings.json.
 cpus: 2
