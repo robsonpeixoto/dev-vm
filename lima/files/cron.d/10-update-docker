@@ -6,5 +6,5 @@ set -eu
 export DEBIAN_FRONTEND=noninteractive
 apt-get -o DPkg::Lock::Timeout=120 update
 apt-get -o DPkg::Lock::Timeout=120 install -y --only-upgrade \
-	docker-ce docker-ce-cli containerd.io docker-ce-rootless-extras \
-	docker-buildx-plugin docker-compose-plugin
+    docker-ce docker-ce-cli containerd.io docker-ce-rootless-extras \
+    docker-buildx-plugin docker-compose-plugin

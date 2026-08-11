@@ -12,7 +12,7 @@ chmod a+r /etc/apt/keyrings/mise-archive-keyring.gpg
 
 architecture=$(dpkg --print-architecture)
 echo "deb [signed-by=/etc/apt/keyrings/mise-archive-keyring.gpg arch=$architecture] https://mise.jdx.dev/deb stable main" \
-	>/etc/apt/sources.list.d/mise.list
+    >/etc/apt/sources.list.d/mise.list
 
 apt-get update
 apt-get install -y mise

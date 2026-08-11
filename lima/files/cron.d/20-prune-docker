@@ -18,23 +18,23 @@ stamp=/var/lib/dev-vm/docker-prune.stamp
 mkdir -p "$(dirname "$stamp")"
 # -mtime +6 is "modified more than 6 full days ago", i.e. a week has passed.
 if [ -e "$stamp" ] && [ -z "$(find "$stamp" -mtime +6)" ]; then
-	exit 0
+    exit 0
 fi
 
 pruned=0
 for sock in /run/user/*/docker.sock; do
-	[ -S "$sock" ] || continue
-	uid=${sock#/run/user/}
-	uid=${uid%/docker.sock}
-	user=$(id -nu "$uid")
-	home=$(getent passwd "$uid" | cut -d: -f6)
-	# `until` filters on creation time, not last use, so an unused base image
-	# built months ago goes on the first run.
-	runuser -u "$user" -- env HOME="$home" DOCKER_HOST="unix://$sock" \
-		docker system prune -af --filter "until=168h"
-	pruned=1
+    [ -S "$sock" ] || continue
+    uid=${sock#/run/user/}
+    uid=${uid%/docker.sock}
+    user=$(id -nu "$uid")
+    home=$(getent passwd "$uid" | cut -d: -f6)
+    # `until` filters on creation time, not last use, so an unused base image
+    # built months ago goes on the first run.
+    runuser -u "$user" -- env HOME="$home" DOCKER_HOST="unix://$sock" \
+        docker system prune -af --filter "until=168h"
+    pruned=1
 done
 
 if [ "$pruned" = 1 ]; then
-	touch "$stamp"
+    touch "$stamp"
 fi

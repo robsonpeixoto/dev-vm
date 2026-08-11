@@ -11,19 +11,19 @@ lock=/run/lock/dev-vm-cron
 
 # Re-exec under flock once; the guard keeps the second run from looping.
 if [ "${DEV_VM_CRON_LOCK:-}" != 1 ]; then
-	DEV_VM_CRON_LOCK=1
-	export DEV_VM_CRON_LOCK
-	exec flock -w 1800 "$lock" "$0" "$@"
+    DEV_VM_CRON_LOCK=1
+    export DEV_VM_CRON_LOCK
+    exec flock -w 1800 "$lock" "$0" "$@"
 fi
 
 status=0
 for job in "$jobs"/*; do
-	[ -x "$job" ] || continue
-	# `if ! "$job"` would report the negated status, so branch on `||`: $?
-	# inside the group is still the job's own exit code.
-	"$job" || {
-		status=$?
-		echo "dev-vm-cron: $job failed with $status" >&2
-	}
+    [ -x "$job" ] || continue
+    # `if ! "$job"` would report the negated status, so branch on `||`: $?
+    # inside the group is still the job's own exit code.
+    "$job" || {
+        status=$?
+        echo "dev-vm-cron: $job failed with $status" >&2
+    }
 done
 exit "$status"

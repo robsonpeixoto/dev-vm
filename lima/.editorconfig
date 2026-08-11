@@ -1,0 +1,6 @@
+# [[shell]] is an shfmt extension, outside the EditorConfig spec: it matches
+# every shell dialect by extension or shebang, so the extensionless cron jobs
+# under files/ are covered along with the *.sh scripts.
+[[shell]]
+indent_style = space
+indent_size = 4

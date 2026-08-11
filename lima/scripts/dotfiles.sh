@@ -14,25 +14,25 @@ set -x
 cd "$HOME"
 
 command -v git >/dev/null 2>&1 ||
-	sudo DEBIAN_FRONTEND=noninteractive apt-get install -y git
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y git
 
 config() {
-	git --git-dir="$HOME/.dotfiles" --work-tree="$HOME" "$@"
+    git --git-dir="$HOME/.dotfiles" --work-tree="$HOME" "$@"
 }
 
 [ -d "$HOME/.dotfiles" ] || git clone --bare "$repo" "$HOME/.dotfiles"
 
 if ! config checkout; then
-	backup="$HOME/tmp/config-backup"
-	# `git checkout` lists the conflicting paths indented; move them aside so
-	# the retry can win. The pipeline may match nothing, hence `|| true`.
-	{ config checkout 2>&1 || true; } | awk '/^\t|^ +/ {print $1}' |
-		while read -r f; do
-			[ -e "$HOME/$f" ] || continue
-			mkdir -p "$backup/$(dirname "$f")"
-			mv "$HOME/$f" "$backup/$f"
-		done
-	config checkout
+    backup="$HOME/tmp/config-backup"
+    # `git checkout` lists the conflicting paths indented; move them aside so
+    # the retry can win. The pipeline may match nothing, hence `|| true`.
+    { config checkout 2>&1 || true; } | awk '/^\t|^ +/ {print $1}' |
+        while read -r f; do
+            [ -e "$HOME/$f" ] || continue
+            mkdir -p "$backup/$(dirname "$f")"
+            mv "$HOME/$f" "$backup/$f"
+        done
+    config checkout
 fi
 
 config config --local status.showUntrackedFiles no
@@ -44,11 +44,11 @@ config config --local branch.main.remote origin
 stanza=$HOME/.ssh/lima-github.conf
 conf=$HOME/.ssh/config
 if [ -f "$stanza" ]; then
-	marker=$(head -1 "$stanza")
-	if ! grep -qxF "$marker" "$conf" 2>/dev/null; then
-		touch "$conf"
-		cat "$stanza" "$conf" >"$conf.new"
-		mv "$conf.new" "$conf"
-		chmod 600 "$conf"
-	fi
+    marker=$(head -1 "$stanza")
+    if ! grep -qxF "$marker" "$conf" 2>/dev/null; then
+        touch "$conf"
+        cat "$stanza" "$conf" >"$conf.new"
+        mv "$conf.new" "$conf"
+        chmod 600 "$conf"
+    fi
 fi

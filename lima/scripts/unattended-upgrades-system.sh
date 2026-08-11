@@ -11,9 +11,9 @@ set -eux
 export DEBIAN_FRONTEND=noninteractive
 
 if ! dpkg-query -W -f='${db:Status-Status}' unattended-upgrades 2>/dev/null |
-	grep -qx installed; then
-	apt-get update
-	apt-get install -y unattended-upgrades
+    grep -qx installed; then
+    apt-get update
+    apt-get install -y unattended-upgrades
 fi
 
 # apt-daily fetches the lists, apt-daily-upgrade applies the upgrade; the

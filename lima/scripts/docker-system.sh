@@ -22,13 +22,13 @@ architecture=$(dpkg --print-architecture)
 # shellcheck source=/dev/null
 codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
 echo "deb [arch=$architecture signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $codename stable" \
-	>/etc/apt/sources.list.d/docker.list
+    >/etc/apt/sources.list.d/docker.list
 
 apt-get update
 # docker-ce-rootless-extras carries dockerd-rootless-setuptool.sh, rootlesskit
 # and slirp4netns — without it there is no rootless daemon to set up.
 apt-get install -y docker-ce docker-ce-cli containerd.io docker-ce-rootless-extras \
-	docker-buildx-plugin docker-compose-plugin
+    docker-buildx-plugin docker-compose-plugin
 
 # The rootless daemon runs its own dockerd + containerd inside the user's
 # namespace, so the packaged system-wide units are not merely unused: a second

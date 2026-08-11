@@ -10,13 +10,13 @@ mkdir -p ~/.ssh
 chmod 700 ~/.ssh
 
 for i in 1 2 3; do
-	if ssh-keyscan -T 10 github.com >~/.ssh/known_hosts.new 2>/dev/null &&
-		[ -s ~/.ssh/known_hosts.new ]; then
-		mv ~/.ssh/known_hosts.new ~/.ssh/known_hosts
-		chmod 644 ~/.ssh/known_hosts
-		exit 0
-	fi
-	sleep "$i"
+    if ssh-keyscan -T 10 github.com >~/.ssh/known_hosts.new 2>/dev/null &&
+        [ -s ~/.ssh/known_hosts.new ]; then
+        mv ~/.ssh/known_hosts.new ~/.ssh/known_hosts
+        chmod 644 ~/.ssh/known_hosts
+        exit 0
+    fi
+    sleep "$i"
 done
 
 rm -f ~/.ssh/known_hosts.new

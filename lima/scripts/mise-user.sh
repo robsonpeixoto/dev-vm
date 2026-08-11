@@ -10,7 +10,7 @@ set -eux
 # line on top of it would be redundant. Matches mise inside the plugins=(...)
 # block, one-line or multiline.
 omz_mise_enabled() {
-	awk '
+    awk '
 		/^[[:space:]]*plugins=\(/ { in_plugins = 1 }
 		in_plugins && /(^|[( \t])mise([ \t)]|$)/ { found = 1 }
 		in_plugins && /\)/ { in_plugins = 0 }
@@ -23,7 +23,7 @@ omz_mise_enabled() {
 # shellcheck disable=SC2016
 line='eval "$(mise activate zsh)"'
 if ! omz_mise_enabled && ! grep -qxF "$line" ~/.zshrc 2>/dev/null; then
-	echo "$line" >>~/.zshrc
+    echo "$line" >>~/.zshrc
 fi
 
 mise trust --all
