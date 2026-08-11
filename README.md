@@ -184,9 +184,11 @@ The zsh script needs `compinit` to have run first. Names come from the hidden
 ## Releasing
 
 `.github/workflows/ci.yml` runs `gofmt`, `go vet`, `go build` and `go test` on
-every push to `main` and every pull request, plus a parallel `shellcheck` job
-over the provisioning shell: `lima/scripts/*.sh`, `lima/files/*.sh`,
-`lima/files/dev-vm-cron` and `lima/files/cron.d/*`.
+every push to `main` and every pull request, plus a parallel `shell` job over
+the provisioning shell: `shellcheck` on `lima/scripts/*.sh`, `lima/files/*.sh`,
+`lima/files/dev-vm-cron` and `lima/files/cron.d/*`, then `shfmt -d lima`, which
+takes its 4-space indent from the `[[shell]]` section of `lima/.editorconfig`.
+Reformat with `shfmt -w lima`.
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`, which cross-compiles
 `linux/{amd64,arm64}` and `darwin/{amd64,arm64}`, injects the tag into

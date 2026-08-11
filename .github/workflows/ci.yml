@@ -21,10 +21,17 @@ jobs:
       - run: go build ./...
       - run: go test ./...
 
-  shellcheck:
+  shell:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
       # ubuntu-latest ships shellcheck; the cron files carry a #!/bin/sh
       # shebang, so no -s is needed to pick the dialect.
       - run: shellcheck lima/scripts/*.sh lima/files/*.sh lima/files/dev-vm-cron lima/files/cron.d/*
+      # No printer flags, so shfmt takes the indent from lima/.editorconfig. It
+      # walks lima/ and finds shell files by extension or shebang, so a new
+      # script is covered without editing this file.
+      - run: go run mvdan.cc/sh/v3/cmd/shfmt@latest -d lima
