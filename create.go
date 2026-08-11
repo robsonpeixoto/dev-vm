@@ -16,8 +16,10 @@ Usage: devvm create [name] [-create-ssh-key=false] [-dotfiles REPO|-no-dotfiles]
 
 - Generates a fresh ed25519 key pair at ~/.config/dev-vm/keys/<name> (no
   passphrase) on every create; -create-ssh-key=false reuses the existing pair.
-- Registers the public key on GitHub with title <name> via gh, replacing
-  any key recorded in the state file or sharing the same title.
+- Registers the public key on GitHub with title dev-vm/<host>/<name> via gh,
+  replacing any key recorded in the state file or sharing the same title. The
+  host qualifier keeps two machines using the same VM name from deleting each
+  other's key.
 - Starts the VM from the embedded lima/dev-vm.yaml; the template uploads the
   private key and ssh config into the guest, and provisioning fetches
   known_hosts.
@@ -81,11 +83,12 @@ func cmdCreate(argv []string) {
 		fmt.Printf("reusing key %s\n", key)
 	} else {
 		checkScopes()
-		createKey(name, key, pub)
-		keyID := registerKey(name, pub)
+		title := keyTitle(name)
+		createKey(title, key, pub)
+		keyID := registerKey(name, title, pub)
 		putVM(name, map[string]any{
 			"github_key_id":    keyID,
-			"github_key_title": name,
+			"github_key_title": title,
 			"private_key":      key,
 			"public_key":       pub,
 		})
@@ -177,7 +180,7 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
-func createKey(name, key, pub string) {
+func createKey(comment, key, pub string) {
 	if err := os.MkdirAll(keyDir, 0o700); err != nil {
 		die("cannot create %s: %v", keyDir, err)
 	}
@@ -187,27 +190,29 @@ func createKey(name, key, pub string) {
 	for _, p := range []string{key, pub} {
 		os.Remove(p)
 	}
-	run("ssh-keygen", "-t", "ed25519", "-N", "", "-C", name, "-f", key)
+	run("ssh-keygen", "-t", "ed25519", "-N", "", "-C", comment, "-f", key)
 	if err := os.Chmod(key, 0o600); err != nil {
 		die("cannot chmod %s: %v", key, err)
 	}
 	fmt.Printf("created key %s\n", key)
 }
 
-func registerKey(name, pub string) int64 {
+// registerKey replaces the key recorded in the state file plus any key holding
+// the qualified title, then registers the new public key under that title.
+func registerKey(name, title, pub string) int64 {
 	previous, _ := keyID(getVM(name)["github_key_id"])
 	pubData, err := os.ReadFile(pub)
 	if err != nil {
 		die("cannot read %s: %v", pub, err)
 	}
 	for _, k := range listKeys() {
-		if k.Title == name || k.ID == previous {
+		if k.Title == title || k.ID == previous {
 			deleteKey(k.ID)
 			fmt.Printf("deleted old GitHub key %d (%s)\n", k.ID, k.Title)
 		}
 	}
-	created := addKey(name, strings.TrimSpace(string(pubData)))
-	fmt.Printf("registered GitHub key %d (%s)\n", created.ID, name)
+	created := addKey(title, strings.TrimSpace(string(pubData)))
+	fmt.Printf("registered GitHub key %d (%s)\n", created.ID, title)
 	return created.ID
 }
 

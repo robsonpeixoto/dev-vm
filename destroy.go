@@ -18,8 +18,9 @@ Usage: devvm destroy [name] [-force]
 - Asks for confirmation first: the VM name has to be typed back. -force
   skips the prompt, and is required when stdin is not a terminal.
 - Deletes the Lima VM <name>.
-- Deletes the GitHub key recorded in ~/.config/dev-vm/state.json plus any
-  key titled <name>, via gh.
+- Deletes the GitHub key recorded in ~/.config/dev-vm/state.json plus any key
+  holding the title recorded there (dev-vm/<host>/<name>, or the bare <name>
+  for VMs created before titles were qualified), via gh.
 - Removes the key pair at ~/.config/dev-vm/keys/<name>.
 - Drops the VM entry from the state file.
 

@@ -208,9 +208,15 @@ editing. Two requirements:
 ## GitHub SSH key
 
 `create` generates a fresh ed25519 key pair on every run — never a key from
-`~/.ssh` — and registers the public key on GitHub (title = VM name), replacing
-any previous key with the same title. `-create-ssh-key=false` reuses the pair
-from an earlier create.
+`~/.ssh` — and registers the public key on GitHub with the title
+`dev-vm/<host>/<name>`, replacing any previous key with the same title.
+`-create-ssh-key=false` reuses the pair from an earlier create.
+
+`<host>` is the short host name from `os.Hostname()` (no `.local` suffix), so
+two machines that both create `default` register two distinct keys instead of
+deleting each other's. The exact title is recorded as `github_key_title` in the
+state file; `destroy` deletes by that stored title, falling back to the bare VM
+name for VMs created before titles were qualified.
 
 - Host: `~/.config/dev-vm/keys/<name>` (dir 0700, private key 0600, enforced
   on every create). The host's `~/.ssh` is never read; Lima does not load

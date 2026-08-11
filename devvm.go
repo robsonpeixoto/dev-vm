@@ -68,6 +68,25 @@ func keyPaths(name string) (key, pub string) {
 	return filepath.Join(keyDir, name), filepath.Join(keyDir, name+".pub")
 }
 
+// keyTitle qualifies the GitHub key title with the host machine so two
+// machines creating the same VM name do not delete each other's key.
+func keyTitle(name string) string {
+	return fmt.Sprintf("dev-vm/%s/%s", hostName(), name)
+}
+
+// hostName is the short host name, without the .local mDNS suffix macOS adds.
+func hostName() string {
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		return "unknown-host"
+	}
+	host = strings.TrimSuffix(host, ".local")
+	if short, _, ok := strings.Cut(host, "."); ok {
+		host = short
+	}
+	return host
+}
+
 // loadSettings reads user defaults from ~/.config/dev-vm/settings.json,
 // e.g. {"dotfiles": "<repo>", "cpus": 4, "memory": 8, "disk": 100}.
 func loadSettings() map[string]any {
