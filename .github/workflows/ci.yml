@@ -20,3 +20,11 @@ jobs:
       - run: go vet ./...
       - run: go build ./...
       - run: go test ./...
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # ubuntu-latest ships shellcheck; the cron files carry a #!/bin/sh
+      # shebang, so no -s is needed to pick the dialect.
+      - run: shellcheck lima/scripts/*.sh lima/files/*.sh lima/files/dev-vm-cron lima/files/cron.d/*

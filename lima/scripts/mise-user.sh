@@ -18,6 +18,9 @@ omz_mise_enabled() {
 	' ~/.zshrc 2>/dev/null
 }
 
+# The single quotes are the point: `$(...)` goes into ~/.zshrc verbatim for zsh
+# to expand at startup, so it must not expand here.
+# shellcheck disable=SC2016
 line='eval "$(mise activate zsh)"'
 if ! omz_mise_enabled && ! grep -qxF "$line" ~/.zshrc 2>/dev/null; then
 	echo "$line" >>~/.zshrc
