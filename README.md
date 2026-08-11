@@ -146,6 +146,10 @@ release.
    go run . destroy myvm -force
    ```
 
+   The token scope is checked before the prompt, and the VM disk is deleted
+   last — after the GitHub key and the local pair — so a `gh` failure
+   (logged out, expired token, offline) leaves the VM usable.
+
 State lives in `~/.config/dev-vm/state.json`, keys in
 `~/.config/dev-vm/keys/`.
 
@@ -223,8 +227,10 @@ name for VMs created before titles were qualified.
   `~/.ssh/*.pub` into the guest.
 - Guest: the private key is uploaded to `~/.ssh/id_ed25519`; `~/.ssh/config`
   pins it for github.com with `IdentitiesOnly yes`.
-- `destroy` deletes the GitHub key, the local pair, and the state entry,
-  after confirming the VM name (`-force` skips the prompt).
+- `destroy` deletes the GitHub key, the local pair, the VM and the state entry,
+  in that order, after confirming the VM name (`-force` skips the prompt). The
+  irreversible step is last, and the token scope is checked first, so a `gh`
+  failure aborts with the VM still there.
 
 ## Staying patched
 
