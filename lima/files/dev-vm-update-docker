@@ -1,9 +1,10 @@
 #!/bin/sh
 # Upgrade Docker to its latest apt-published version. Installed by dev-vm
-# provisioning; run by cron every 6 hours and at boot.
+# provisioning; run by cron every 6 hours. DPkg::Lock::Timeout makes it wait
+# for unattended-upgrades instead of failing on a held lock.
 set -eu
 export DEBIAN_FRONTEND=noninteractive
-apt-get update
-apt-get install -y --only-upgrade \
+apt-get -o DPkg::Lock::Timeout=120 update
+apt-get -o DPkg::Lock::Timeout=120 install -y --only-upgrade \
 	docker-ce docker-ce-cli containerd.io docker-ce-rootless-extras \
 	docker-buildx-plugin docker-compose-plugin

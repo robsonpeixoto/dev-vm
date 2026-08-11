@@ -14,7 +14,7 @@ set -x
 cd "$HOME"
 
 command -v git >/dev/null 2>&1 ||
-	sudo DEBIAN_FRONTEND=noninteractive apt-get install -y git
+	sudo DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 install -y git
 
 config() {
 	git --git-dir="$HOME/.dotfiles" --work-tree="$HOME" "$@"

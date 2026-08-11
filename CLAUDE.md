@@ -222,6 +222,10 @@ the instance's life: resizing means `limactl edit` or destroy + create.
 - `#!/bin/sh` + `set -eux` (or `set -eu` when output would leak secrets).
 - Idempotent, always — the script reruns on every boot.
 - Root work in `system`, per-user/systemd work in `user`, never mix.
+- Every `apt-get` call takes `-o DPkg::Lock::Timeout=120`. Provision scripts,
+  the Docker updater cron job and Ubuntu's unattended-upgrades all compete for
+  the dpkg lock on boot; without the timeout apt-get fails at once and
+  `set -eux` turns the lost race into a provisioning failure.
 - Secrets and config files go through `mode: data` with explicit `owner` and
   `permissions`, not `echo` or a heredoc inside a script. Static payloads live
   in `lima/files/`, referenced with `file.url` like the scripts.
