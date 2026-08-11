@@ -107,6 +107,13 @@ provision:
   overwrite: true
 - mode: data
   file:
+    url: files/cron.d/20-prune-docker
+  path: /usr/local/lib/dev-vm/cron.d/20-prune-docker
+  owner: "root:root"
+  permissions: "755"
+  overwrite: true
+- mode: data
+  file:
     url: files/dev-vm.cron
   path: /etc/cron.d/dev-vm
   owner: "root:root"
