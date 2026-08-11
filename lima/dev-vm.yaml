@@ -60,13 +60,15 @@ provision:
   owner: "{{.User}}"
   permissions: "600"
   overwrite: true
-# Rootless Docker socket for libraries that read DOCKER_HOST directly;
-# docker-user.sh sources it from ~/.bashrc.
+# Rootless Docker socket for libraries that read DOCKER_HOST directly. Global,
+# not a dotfile: /etc/profile.d covers login shells (zsh reaches it through
+# /etc/zsh/zprofile), and zsh-system.sh wires /etc/zsh/zshenv to the same file
+# for every other zsh.
 - mode: data
   file:
     url: files/docker-host.sh
-  path: "{{.Home}}/.docker-host.sh"
-  owner: "{{.User}}"
+  path: /etc/profile.d/docker-host.sh
+  owner: "root:root"
   permissions: "644"
   overwrite: true
 # Docker auto-update: script plus its cron entry.
@@ -103,8 +105,6 @@ provision:
 - mode: user
   file:
     url: scripts/omz-user.sh
-# Before docker-user.sh: the dotfiles checkout replaces ~/.bashrc, and
-# docker-user.sh appends its DOCKER_HOST line to whatever ends up there.
 - mode: user
   file:
     url: scripts/dotfiles.sh

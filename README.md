@@ -206,12 +206,14 @@ is flattened at create time, so after editing `lima/dev-vm.yaml` or
 Order: data files, then system scripts (root), then user scripts (guest login
 user), then readiness probes gate `limactl start`.
 
-1. **Data files** — GitHub key + ssh config, the `DOCKER_HOST` snippet, the
-   Docker updater and its cron entry.
+1. **Data files** — GitHub key + ssh config, the global `DOCKER_HOST` snippet
+   (`/etc/profile.d/docker-host.sh`), the Docker updater and its cron entry.
 2. **`docker-system.sh`** — installs Docker Engine from Docker's apt repo
    (with `docker-ce-rootless-extras`), then masks the system-wide
    `docker`/`containerd` units so only the rootless daemon exists.
-3. **`zsh-system.sh`** — installs zsh + git, `chsh` the guest user to zsh.
+3. **`zsh-system.sh`** — installs zsh + git, `chsh` the guest user to zsh, and
+   sources `/etc/profile.d/docker-host.sh` from `/etc/zsh/zshenv` so
+   non-login zsh (`limactl shell <name> <cmd>`) also gets `DOCKER_HOST`.
 4. **`mise-system.sh`** — installs mise from its apt repo.
 5. **`ssh-known-hosts.sh`** — rewrites `~/.ssh/known_hosts` from live
    `ssh-keyscan github.com` output.
@@ -221,7 +223,7 @@ user), then readiness probes gate `limactl start`.
    the GitHub ssh stanza back onto `~/.ssh/config`. No-op without
    `DOTFILES_REPO`.
 8. **`docker-user.sh`** — `dockerd-rootless-setuptool.sh install`, selects the
-   `rootless` context, sources `~/.docker-host.sh` from `~/.bashrc`.
+   `rootless` context.
 9. **`mise-user.sh`** — activates mise in `~/.zshrc` (unless the oh-my-zsh
    mise plugin already does), `mise trust --all`, `mise install`.
 
@@ -229,13 +231,13 @@ user), then readiness probes gate `limactl start`.
 flowchart TD
     subgraph data["data files (copied by root)"]
         d1["~/.ssh/id_ed25519 + config + lima-github.conf<br>GitHub SSH access"]
-        d2["~/.docker-host.sh<br>DOCKER_HOST for libraries"]
+        d2["/etc/profile.d/docker-host.sh<br>DOCKER_HOST for libraries"]
         d3["dev-vm-update-docker + cron entry<br>Docker auto-update"]
     end
 
     subgraph system["system scripts (root)"]
         s1["docker-system.sh<br>Docker packages, mask system daemon"]
-        s2["zsh-system.sh<br>install zsh, set login shell"]
+        s2["zsh-system.sh<br>install zsh, set login shell,<br>hook DOCKER_HOST into /etc/zsh/zshenv"]
         s3["mise-system.sh<br>install mise from apt repo"]
     end
 

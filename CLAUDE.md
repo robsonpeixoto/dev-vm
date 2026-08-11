@@ -180,9 +180,10 @@ Empty param means the script exits 0 without doing anything.
   `-dotfiles REPO` overrides it, `-no-dotfiles` skips it.
 - Pre-existing files the checkout would clobber move to `~/tmp/config-backup`
   keeping their relative path.
-- The entry runs **before** `docker-user.sh` — the checkout replaces
-  `~/.bashrc`, and `docker-user.sh` appends its `DOCKER_HOST` line to whatever
-  ends up there.
+- A dotfiles checkout owning `~/.zshrc`/`~/.bashrc` cannot break `DOCKER_HOST`:
+  it is exported globally from `/etc/profile.d/docker-host.sh`, reached by
+  login shells through `/etc/profile` (zsh via `/etc/zsh/zprofile`) and by
+  every other zsh through the line `zsh-system.sh` adds to `/etc/zsh/zshenv`.
 - A dotfiles repo carrying `.ssh/config` replaces the provisioned one, so
   `dotfiles.sh` prepends the GitHub stanza back from
   `~/.ssh/lima-github.conf` (same `mode: data` payload,

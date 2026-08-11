@@ -15,6 +15,5 @@ dockerd-rootless-setuptool.sh install
 docker context use rootless
 
 # The context above is enough for the docker CLI, but not for libraries that
-# read DOCKER_HOST directly; ~/.docker-host.sh (a `mode: data` file) sets it.
-line='[ -f ~/.docker-host.sh ] && . ~/.docker-host.sh'
-grep -qxF "$line" ~/.bashrc 2>/dev/null || echo "$line" >>~/.bashrc
+# read DOCKER_HOST directly; /etc/profile.d/docker-host.sh (a `mode: data`
+# file, wired into zsh by zsh-system.sh) exports it for every shell.
