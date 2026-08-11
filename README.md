@@ -226,6 +226,58 @@ name for VMs created before titles were qualified.
 - `destroy` deletes the GitHub key, the local pair, and the state entry,
   after confirming the VM name (`-force` skips the prompt).
 
+## Guest OS
+
+The guest is pinned to **Ubuntu 26.04 LTS**, by
+`base: [template:_images/ubuntu-26.04]` in `lima/dev-vm.yaml`.
+
+The pin is the point. `template:_images/ubuntu-lts` is a symlink inside the
+installed Lima release, so it floats with it: upgrading Lima can move new VMs
+to the next LTS with nothing in this repo changing, and two identical `create`
+runs on different days can produce different guests. The per-release names are
+stable — Lima keeps one for every LTS it has shipped (`ubuntu-20.04`,
+`ubuntu-22.04`, `ubuntu-24.04`, `ubuntu-26.04`).
+
+A bump never touches existing VMs. The template is flattened at create time, so
+the release is fixed for an instance's life; only VMs created afterwards get the
+new one.
+
+### Bumping to a new LTS
+
+Ubuntu ships an LTS every two years and Lima adds the template around release
+day. Bump once the template is in the Lima version you run **and** Docker's apt
+repo carries the new codename — `docker-system.sh` derives it from the guest's
+`/etc/os-release`, and Docker publishes a suite per codename, so a too-early
+bump fails provisioning at `apt-get update`. (mise's repo is codename-agnostic.)
+
+1. Confirm the template exists and see what `ubuntu-lts` currently points at:
+
+   ```sh
+   ls "$(brew --prefix lima)/share/lima/templates/_images" | grep ubuntu
+   grep -m1 location "$(brew --prefix lima)/share/lima/templates/_images/ubuntu-lts.yaml"
+   ```
+
+2. Point the `base:` entry in `lima/dev-vm.yaml` at the new
+   `template:_images/ubuntu-XX.YY`, and update the release named in this
+   section and in [CLAUDE.md](CLAUDE.md).
+3. Create a throwaway VM, walk the checklist, then destroy it:
+
+   ```sh
+   go run . create pinbump
+   go run . destroy pinbump
+   ```
+
+Every new LTS has to pass all three on that fresh create:
+
+- **Boot** — `create` finishes without a provisioning error, and
+  `limactl shell pinbump sudo cat /var/log/cloud-init-output.log` shows no
+  failed script.
+- **Docker probe** — the rootless-Docker readiness probe passes; confirm with
+  `limactl shell pinbump docker info`.
+- **GitHub probe** — the SSH probe passes; confirm with
+  `limactl shell pinbump ssh -T git@github.com` reporting
+  `successfully authenticated`.
+
 ## Staying patched
 
 Two updaters, split by what their repo publishes:
