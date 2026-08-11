@@ -222,13 +222,20 @@ the instance's life: resizing means `limactl edit` or destroy + create.
 - `#!/bin/sh` + `set -eux` (or `set -eu` when output would leak secrets).
 - Idempotent, always — the script reruns on every boot.
 - Root work in `system`, per-user/systemd work in `user`, never mix.
-- Every `apt-get` call takes `-o DPkg::Lock::Timeout=120`. Provision scripts,
-  the Docker updater cron job and Ubuntu's unattended-upgrades all compete for
-  the dpkg lock on boot; without the timeout apt-get fails at once and
-  `set -eux` turns the lost race into a provisioning failure.
+- No `DPkg::Lock::Timeout` in provision scripts: boot provisioning owns the
+  dpkg lock, so waiting there would only hide a real conflict. The timeout
+  belongs to the cron jobs, which run against a live system next to
+  unattended-upgrades.
 - Secrets and config files go through `mode: data` with explicit `owner` and
   `permissions`, not `echo` or a heredoc inside a script. Static payloads live
   in `lima/files/`, referenced with `file.url` like the scripts.
+- Recurring guest maintenance is a job file, not a new cron line: put an
+  executable script in `lima/files/cron.d/` and a `mode: data` entry mapping it
+  to `/usr/local/lib/dev-vm/cron.d/<NN>-<name>` (permissions `755`).
+  `/etc/cron.d/dev-vm` holds a single entry, `/usr/local/sbin/dev-vm-cron`,
+  which runs that directory in name order under `flock` — jobs run one at a
+  time and overlapping ticks queue instead of racing. Those jobs run against a
+  live system, so every `apt-get` in them takes `-o DPkg::Lock::Timeout=120`.
 - Templates, scripts and static files are embedded into the Go binary with
   `//go:embed` (see `embed.go`) and materialized into a temp dir at create
   time; `go run .` picks up edits automatically, a prebuilt `devvm` binary

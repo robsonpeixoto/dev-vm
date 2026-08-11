@@ -71,19 +71,28 @@ provision:
   owner: "root:root"
   permissions: "644"
   overwrite: true
-# Docker auto-update: script plus its cron entry (every 6 hours, not at boot —
-# provisioning already installs the latest packages on each boot).
+# Maintenance cron: one entry every 6 hours (not at boot — provisioning
+# already installs the latest packages on each boot), running the jobs in
+# /usr/local/lib/dev-vm/cron.d sequentially so they never fight for the dpkg
+# lock.
 - mode: data
   file:
-    url: files/dev-vm-update-docker
-  path: /usr/local/sbin/dev-vm-update-docker
+    url: files/dev-vm-cron
+  path: /usr/local/sbin/dev-vm-cron
   owner: "root:root"
   permissions: "755"
   overwrite: true
 - mode: data
   file:
-    url: files/dev-vm-update-docker.cron
-  path: /etc/cron.d/dev-vm-update-docker
+    url: files/cron.d/10-update-docker
+  path: /usr/local/lib/dev-vm/cron.d/10-update-docker
+  owner: "root:root"
+  permissions: "755"
+  overwrite: true
+- mode: data
+  file:
+    url: files/dev-vm.cron
+  path: /etc/cron.d/dev-vm
   owner: "root:root"
   permissions: "644"
   overwrite: true

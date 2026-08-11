@@ -8,10 +8,10 @@
 set -eux
 
 export DEBIAN_FRONTEND=noninteractive
-apt-get -o DPkg::Lock::Timeout=120 update
+apt-get update
 # ca-certificates + curl fetch the repo key; uidmap (newuidmap/newgidmap) and
 # dbus-user-session are rootless Docker's own prerequisites.
-apt-get -o DPkg::Lock::Timeout=120 install -y ca-certificates curl uidmap dbus-user-session
+apt-get install -y ca-certificates curl uidmap dbus-user-session
 
 # Docker's official apt repo (see https://docs.docker.com/engine/install/ubuntu/).
 install -m 0755 -d /etc/apt/keyrings
@@ -24,10 +24,10 @@ codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
 echo "deb [arch=$architecture signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $codename stable" \
 	>/etc/apt/sources.list.d/docker.list
 
-apt-get -o DPkg::Lock::Timeout=120 update
+apt-get update
 # docker-ce-rootless-extras carries dockerd-rootless-setuptool.sh, rootlesskit
 # and slirp4netns — without it there is no rootless daemon to set up.
-apt-get -o DPkg::Lock::Timeout=120 install -y docker-ce docker-ce-cli containerd.io docker-ce-rootless-extras \
+apt-get install -y docker-ce docker-ce-cli containerd.io docker-ce-rootless-extras \
 	docker-buildx-plugin docker-compose-plugin
 
 # The rootless daemon runs its own dockerd + containerd inside the user's
@@ -38,7 +38,8 @@ apt-get -o DPkg::Lock::Timeout=120 install -y docker-ce docker-ce-cli containerd
 systemctl disable --now docker.service docker.socket containerd.service containerd.socket || true
 systemctl mask docker.service docker.socket containerd.service containerd.socket || true
 
-# The updater (/usr/local/sbin/dev-vm-update-docker) and its cron entry ship as
-# `mode: data` files, applied before this script runs. Package upgrades reach
+# The updater (/usr/local/lib/dev-vm/cron.d/10-update-docker), the cron runner
+# and its /etc/cron.d entry ship as `mode: data` files, applied before this
+# script runs. Package upgrades reach
 # the user's running daemon on the next boot, when the rootless systemd user
 # unit restarts.

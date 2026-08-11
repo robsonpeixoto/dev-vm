@@ -6,8 +6,8 @@
 set -eux
 
 export DEBIAN_FRONTEND=noninteractive
-apt-get -o DPkg::Lock::Timeout=120 update
-apt-get -o DPkg::Lock::Timeout=120 install -y zsh git
+apt-get update
+apt-get install -y zsh git
 
 chsh -s /usr/bin/zsh "{{.User}}"
 

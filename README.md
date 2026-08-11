@@ -207,9 +207,13 @@ Order: data files, then system scripts (root), then user scripts (guest login
 user), then readiness probes gate `limactl start`.
 
 1. **Data files** — GitHub key + ssh config, the global `DOCKER_HOST` snippet
-   (`/etc/profile.d/docker-host.sh`), the Docker updater and its cron entry
-   (every 6 hours; not at boot, since provisioning installs the latest Docker
-   packages on each boot anyway).
+   (`/etc/profile.d/docker-host.sh`), and the maintenance cron: the runner
+   `/usr/local/sbin/dev-vm-cron`, the Docker updater
+   `/usr/local/lib/dev-vm/cron.d/10-update-docker`, and `/etc/cron.d/dev-vm`,
+   whose single entry runs the runner every 6 hours (not at boot — provisioning
+   installs the latest Docker packages on each boot anyway). The runner
+   executes `/usr/local/lib/dev-vm/cron.d/*` in name order under `flock`, so
+   jobs never run in parallel or fight for the dpkg lock.
 2. **`docker-system.sh`** — installs Docker Engine from Docker's apt repo
    (with `docker-ce-rootless-extras`), then masks the system-wide
    `docker`/`containerd` units so only the rootless daemon exists.
@@ -234,7 +238,7 @@ flowchart TD
     subgraph data["data files (copied by root)"]
         d1["~/.ssh/id_ed25519 + config + lima-github.conf<br>GitHub SSH access"]
         d2["/etc/profile.d/docker-host.sh<br>DOCKER_HOST for libraries"]
-        d3["dev-vm-update-docker + cron entry<br>Docker auto-update every 6h"]
+        d3["dev-vm-cron + cron.d/10-update-docker<br>sequential jobs every 6h"]
     end
 
     subgraph system["system scripts (root)"]

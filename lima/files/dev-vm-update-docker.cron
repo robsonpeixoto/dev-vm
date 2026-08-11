@@ -1,7 +1,0 @@
-# dev-vm: keep Docker up to date. Every 6 hours.
-# No @reboot entry: provisioning runs docker-system.sh on every boot and
-# already installs the latest packages, so a boot-time run would only race
-# for the dpkg lock.
-SHELL=/bin/sh
-PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-30 */6 * * * root /usr/local/sbin/dev-vm-update-docker

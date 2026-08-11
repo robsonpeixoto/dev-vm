@@ -1,7 +1,7 @@
 #!/bin/sh
-# Upgrade Docker to its latest apt-published version. Installed by dev-vm
-# provisioning; run by cron every 6 hours. DPkg::Lock::Timeout makes it wait
-# for unattended-upgrades instead of failing on a held lock.
+# Upgrade Docker to its latest apt-published version. Run by dev-vm-cron,
+# never directly by cron. DPkg::Lock::Timeout makes apt-get wait for
+# unattended-upgrades instead of failing on a held lock.
 set -eu
 export DEBIAN_FRONTEND=noninteractive
 apt-get -o DPkg::Lock::Timeout=120 update
