@@ -21,14 +21,14 @@ _dev_vm() {
 		esac
 		COMPREPLY=($(compgen -W "-create-ssh-key= -dotfiles -no-dotfiles -cpus -memory -disk -help" -- "$cur"))
 		;;
-	start | destroy)
+	start)
 		if [ "${cur:0:1}" = "-" ]; then
 			COMPREPLY=($(compgen -W "-help" -- "$cur"))
 		else
 			COMPREPLY=($(compgen -W "$("${COMP_WORDS[0]}" __names 2>/dev/null)" -- "$cur"))
 		fi
 		;;
-	stop)
+	stop | destroy)
 		if [ "${cur:0:1}" = "-" ]; then
 			COMPREPLY=($(compgen -W "-force -help" -- "$cur"))
 		else

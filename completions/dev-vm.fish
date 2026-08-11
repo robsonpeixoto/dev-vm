@@ -24,5 +24,6 @@ complete -c dev-vm -n '__fish_seen_subcommand_from create' -o disk -r -d 'disk s
 
 complete -c dev-vm -n '__fish_seen_subcommand_from start stop destroy' -a '(__dev_vm_names)' -d 'dev VM'
 complete -c dev-vm -n '__fish_seen_subcommand_from stop' -o force -d 'kill the VM instead of shutting the guest down gracefully'
+complete -c dev-vm -n '__fish_seen_subcommand_from destroy' -o force -d 'skip the confirmation prompt'
 
 complete -c dev-vm -n '__fish_seen_subcommand_from completion' -a 'bash zsh fish' -d shell

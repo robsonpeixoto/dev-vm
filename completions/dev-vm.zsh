@@ -39,8 +39,13 @@ _dev_vm() {
 				'-disk[disk size in GiB]:gib:' \
 				'1:name:'
 			;;
-		start | destroy)
+		start)
 			_arguments '1:name:_dev_vm_names'
+			;;
+		destroy)
+			_arguments \
+				'-force[skip the confirmation prompt]' \
+				'1:name:_dev_vm_names'
 			;;
 		stop)
 			_arguments \

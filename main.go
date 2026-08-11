@@ -16,7 +16,7 @@ Usage:
                 [-cpus N] [-memory GiB] [-disk GiB]
   dev-vm start [name]
   dev-vm stop [name] [-force]
-  dev-vm destroy [name]
+  dev-vm destroy [name] [-force]
   dev-vm list
   dev-vm completion <bash|zsh|fish>
   dev-vm version
