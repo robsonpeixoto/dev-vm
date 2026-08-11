@@ -21,8 +21,8 @@ Usage: devvm create [name] [-create-ssh-key=false] [-dotfiles REPO|-no-dotfiles]
   host qualifier keeps two machines using the same VM name from deleting each
   other's key.
 - Starts the VM from the embedded lima/dev-vm.yaml; the template uploads the
-  private key and ssh config into the guest, and provisioning fetches
-  known_hosts.
+  private key, the ssh config and the pinned github.com host keys into the
+  guest.
 - With dotfiles enabled, provisioning clones the bare repo to ~/.dotfiles in
   the guest and checks it out over $HOME. The repo comes from -dotfiles or
   from {"dotfiles": "<repo>"} in ~/.config/dev-vm/settings.json, which also

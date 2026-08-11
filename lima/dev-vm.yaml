@@ -60,6 +60,17 @@ provision:
   owner: "{{.User}}"
   permissions: "600"
   overwrite: true
+# github.com host keys, pinned from https://api.github.com/meta instead of
+# scanned live on every boot. Root-owned and outside $HOME, so a dotfiles
+# checkout cannot replace them and ~/.ssh/known_hosts stays user state; ssh
+# reads this path by default (GlobalKnownHostsFile).
+- mode: data
+  file:
+    url: files/github-known-hosts
+  path: /etc/ssh/ssh_known_hosts
+  owner: "root:root"
+  permissions: "644"
+  overwrite: true
 # Rootless Docker socket for libraries that read DOCKER_HOST directly. Global,
 # not a dotfile: /etc/profile.d covers login shells (zsh reaches it through
 # /etc/zsh/zprofile), and zsh-system.sh wires /etc/zsh/zshenv to the same file
@@ -124,11 +135,6 @@ provision:
 - mode: system
   file:
     url: scripts/unattended-upgrades-system.sh
-# known_hosts is user state: `boot` mode would run as root, before this user
-# exists, and write /root/.ssh/known_hosts instead.
-- mode: user
-  file:
-    url: scripts/ssh-known-hosts.sh
 # Before dotfiles.sh: the installer writes a stock ~/.zshrc that a dotfiles
 # checkout then replaces with the real one.
 - mode: user
