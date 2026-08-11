@@ -23,7 +23,7 @@ _dev_vm() {
 		;;
 	destroy)
 		if [ "${cur:0:1}" = "-" ]; then
-			COMPREPLY=($(compgen -W "-help" -- "$cur"))
+			COMPREPLY=($(compgen -W "-force -help" -- "$cur"))
 		else
 			COMPREPLY=($(compgen -W "$("${COMP_WORDS[0]}" __names 2>/dev/null)" -- "$cur"))
 		fi

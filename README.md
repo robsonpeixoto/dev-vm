@@ -5,7 +5,7 @@ forwards, rootless Docker, zsh + oh-my-zsh, mise, GitHub SSH access.
 
 ```sh
 go run . create [name]    # create and start the VM
-go run . destroy [name]   # delete it
+go run . destroy [name]   # delete it (confirms first; -force skips)
 go run . list             # list VMs with status, size and SSH hostname
 go run . completion zsh   # print the shell completion script
 go run . version          # print the build version
@@ -118,10 +118,19 @@ release.
    go run . list
    ```
 
-6. Throw it away (deletes the VM, the GitHub key and the local key pair):
+6. Throw it away (deletes the VM, the GitHub key and the local key pair). It
+   asks first — type the VM name back to go ahead, anything else aborts:
 
    ```sh
    go run . destroy myvm
+   ```
+
+   Scripts and CI pass `-force` to skip the prompt. Without a terminal on
+   stdin, `destroy` refuses instead of hanging, so `-force` is mandatory
+   there:
+
+   ```sh
+   go run . destroy myvm -force
    ```
 
 State lives in `~/.config/dev-vm/state.json`, keys in
@@ -130,8 +139,8 @@ State lives in `~/.config/dev-vm/state.json`, keys in
 ## Shell completion
 
 `dev-vm completion <bash|zsh|fish>` prints the completion script for that
-shell. It completes subcommands, the `create` flags, and the recorded VM
-names for `destroy`.
+shell. It completes subcommands, the `create` and `destroy` flags, and the
+recorded VM names for `destroy`.
 
 Try it in the current shell:
 
@@ -195,7 +204,8 @@ from an earlier create.
   `~/.ssh/*.pub` into the guest.
 - Guest: the private key is uploaded to `~/.ssh/id_ed25519`; `~/.ssh/config`
   pins it for github.com with `IdentitiesOnly yes`.
-- `destroy` deletes the GitHub key, the local pair, and the state entry.
+- `destroy` deletes the GitHub key, the local pair, and the state entry,
+  after confirming the VM name (`-force` skips the prompt).
 
 ## Provisioning steps
 

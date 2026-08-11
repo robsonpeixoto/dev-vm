@@ -14,7 +14,7 @@ const usage = `Manage isolated Lima dev VMs with SSH access to GitHub.
 Usage:
   dev-vm create [name] [-create-ssh-key=false] [-dotfiles REPO|-no-dotfiles]
                 [-cpus N] [-memory GiB] [-disk GiB]
-  dev-vm destroy [name]
+  dev-vm destroy [name] [-force]
   dev-vm list
   dev-vm completion <bash|zsh|fish>
   dev-vm version
