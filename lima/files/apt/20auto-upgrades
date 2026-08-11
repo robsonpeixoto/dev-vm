@@ -1,0 +1,6 @@
+// dev-vm: run the periodic apt maintenance that drives unattended-upgrades.
+// Without these, unattended-upgrades is installed but never triggered.
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Download-Upgradeable-Packages "1";
+APT::Periodic::Unattended-Upgrade "1";
+APT::Periodic::AutocleanInterval "7";

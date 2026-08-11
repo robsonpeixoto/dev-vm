@@ -226,6 +226,31 @@ name for VMs created before titles were qualified.
 - `destroy` deletes the GitHub key, the local pair, and the state entry,
   after confirming the VM name (`-force` skips the prompt).
 
+## Staying patched
+
+Two updaters, split by what their repo publishes:
+
+- **Ubuntu** — `unattended-upgrades`, enabled by
+  `unattended-upgrades-system.sh` and driven by the `apt-daily` /
+  `apt-daily-upgrade` timers. It applies the **security pockets only**
+  (`-security`, plus the two ESM ones), never reboots on its own, and cleans
+  up unused kernels and dependencies. A pending kernel takes effect on the
+  next VM restart.
+- **Docker** — `/usr/local/lib/dev-vm/cron.d/10-update-docker`, every 6 hours
+  through `dev-vm-cron`. It stays separate because Docker's apt repo
+  publishes no security suite for `Unattended-Upgrade::Allowed-Origins` to
+  match; folding it in would mean allowing the whole Docker origin, which is
+  a feature-version upgrade, not a security one. It runs under `flock` and
+  passes `-o DPkg::Lock::Timeout=120`, so it waits for an unattended-upgrades
+  run rather than losing the dpkg lock race.
+
+Check the policy from inside the guest:
+
+```sh
+limactl shell <name> sudo unattended-upgrade --dry-run --debug
+limactl shell <name> systemctl list-timers apt-daily\*
+```
+
 ## Provisioning steps
 
 Every step runs on **each boot** (all scripts are idempotent). The template
@@ -236,7 +261,8 @@ Order: data files, then system scripts (root), then user scripts (guest login
 user), then readiness probes gate `limactl start`.
 
 1. **Data files** — GitHub key + ssh config, the global `DOCKER_HOST` snippet
-   (`/etc/profile.d/docker-host.sh`), and the maintenance cron: the runner
+   (`/etc/profile.d/docker-host.sh`), the unattended-upgrades policy in
+   `/etc/apt/apt.conf.d/`, and the maintenance cron: the runner
    `/usr/local/sbin/dev-vm-cron`, the Docker updater
    `/usr/local/lib/dev-vm/cron.d/10-update-docker`, and `/etc/cron.d/dev-vm`,
    whose single entry runs the runner every 6 hours (not at boot — provisioning
@@ -250,16 +276,21 @@ user), then readiness probes gate `limactl start`.
    sources `/etc/profile.d/docker-host.sh` from `/etc/zsh/zshenv` so
    non-login zsh (`limactl shell <name> <cmd>`) also gets `DOCKER_HOST`.
 4. **`mise-system.sh`** — installs mise from its apt repo.
-5. **`ssh-known-hosts.sh`** — rewrites `~/.ssh/known_hosts` from live
+5. **`unattended-upgrades-system.sh`** — installs `unattended-upgrades` and
+   enables the `apt-daily` timers, so Ubuntu security updates (kernel,
+   openssl, openssh) land without anyone asking. Policy lives in
+   `/etc/apt/apt.conf.d/52dev-vm-unattended-upgrades`: security pockets only,
+   no automatic reboot, unused kernels and dependencies removed.
+6. **`ssh-known-hosts.sh`** — rewrites `~/.ssh/known_hosts` from live
    `ssh-keyscan github.com` output.
-6. **`omz-user.sh`** — installs oh-my-zsh (skipped if `~/.oh-my-zsh` exists).
-7. **`dotfiles.sh`** — clones the bare repo to `~/.dotfiles`, checks it out
+7. **`omz-user.sh`** — installs oh-my-zsh (skipped if `~/.oh-my-zsh` exists).
+8. **`dotfiles.sh`** — clones the bare repo to `~/.dotfiles`, checks it out
    over `$HOME` (clobbered files move to `~/tmp/config-backup`), and prepends
    the GitHub ssh stanza back onto `~/.ssh/config`. No-op without
    `DOTFILES_REPO`.
-8. **`docker-user.sh`** — `dockerd-rootless-setuptool.sh install`, selects the
+9. **`docker-user.sh`** — `dockerd-rootless-setuptool.sh install`, selects the
    `rootless` context.
-9. **`mise-user.sh`** — activates mise in `~/.zshrc` (unless the oh-my-zsh
+10. **`mise-user.sh`** — activates mise in `~/.zshrc` (unless the oh-my-zsh
    mise plugin already does), `mise trust --all`, `mise install`.
 
 ```mermaid
@@ -267,13 +298,15 @@ flowchart TD
     subgraph data["data files (copied by root)"]
         d1["~/.ssh/id_ed25519 + config + lima-github.conf<br>GitHub SSH access"]
         d2["/etc/profile.d/docker-host.sh<br>DOCKER_HOST for libraries"]
-        d3["dev-vm-cron + cron.d/10-update-docker<br>sequential jobs every 6h"]
+        d3["apt.conf.d/20auto-upgrades + 52dev-vm-unattended-upgrades<br>security-only upgrade policy"]
+        d4["dev-vm-cron + cron.d/10-update-docker<br>sequential jobs every 6h"]
     end
 
     subgraph system["system scripts (root)"]
         s1["docker-system.sh<br>Docker packages, mask system daemon"]
         s2["zsh-system.sh<br>install zsh, set login shell,<br>hook DOCKER_HOST into /etc/zsh/zshenv"]
         s3["mise-system.sh<br>install mise from apt repo"]
+        s4["unattended-upgrades-system.sh<br>enable OS security upgrades"]
     end
 
     subgraph user["user scripts (login user)"]
@@ -290,7 +323,7 @@ flowchart TD
     end
 
     data --> system
-    s1 --> s2 --> s3
+    s1 --> s2 --> s3 --> s4
     system --> user
     u1 --> u2 --> u3 --> u4 --> u5
     user --> probes

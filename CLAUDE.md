@@ -229,6 +229,11 @@ the instance's life: resizing means `limactl edit` or destroy + create.
 - Secrets and config files go through `mode: data` with explicit `owner` and
   `permissions`, not `echo` or a heredoc inside a script. Static payloads live
   in `lima/files/`, referenced with `file.url` like the scripts.
+- OS security patching is `unattended-upgrades`, not a cron job:
+  `scripts/unattended-upgrades-system.sh` installs it and enables the
+  `apt-daily` timers, and the policy lives in two `mode: data` files under
+  `lima/files/apt/`. It is scoped to the security pockets, so anything that
+  needs a non-security upgrade (Docker) keeps its own job in `cron.d`.
 - Recurring guest maintenance is a job file, not a new cron line: put an
   executable script in `lima/files/cron.d/` and a `mode: data` entry mapping it
   to `/usr/local/lib/dev-vm/cron.d/<NN>-<name>` (permissions `755`).
