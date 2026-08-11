@@ -180,7 +180,9 @@ The zsh script needs `compinit` to have run first. Names come from the hidden
 ## Releasing
 
 `.github/workflows/ci.yml` runs `gofmt`, `go vet`, `go build` and `go test` on
-every push to `main` and every pull request.
+every push to `main` and every pull request, plus a parallel `shellcheck` job
+over the provisioning shell: `lima/scripts/*.sh`, `lima/files/*.sh`,
+`lima/files/dev-vm-cron` and `lima/files/cron.d/*`.
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`, which cross-compiles
 `linux/{amd64,arm64}` and `darwin/{amd64,arm64}`, injects the tag into
