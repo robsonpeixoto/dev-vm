@@ -1,0 +1,40 @@
+#!/bin/sh
+# Reclaim disk from Docker: stopped containers, unused images, unused networks
+# and build cache untouched for a week. Volumes are left alone (`prune -a` skips
+# them without --volumes) — images are re-pullable, volume data is not. Run by
+# dev-vm-cron, never directly by cron. No apt here, so no DPkg::Lock::Timeout.
+#
+# dev-vm-cron ticks every 6 hours and this prune is weekly, so the job stamps
+# itself and returns early until the stamp is a week old.
+#
+# Docker is rootless: the daemon runs as the guest login user on
+# /run/user/<uid>/docker.sock, while cron runs as root. The socket path carries
+# the uid, so the user is resolved from it instead of being baked in (same
+# reasoning as /etc/profile.d/docker-host.sh). No socket means no daemon for
+# that user, hence nothing to prune and no stamp.
+set -eu
+
+stamp=/var/lib/dev-vm/docker-prune.stamp
+mkdir -p "$(dirname "$stamp")"
+# -mtime +6 is "modified more than 6 full days ago", i.e. a week has passed.
+if [ -e "$stamp" ] && [ -z "$(find "$stamp" -mtime +6)" ]; then
+	exit 0
+fi
+
+pruned=0
+for sock in /run/user/*/docker.sock; do
+	[ -S "$sock" ] || continue
+	uid=${sock#/run/user/}
+	uid=${uid%/docker.sock}
+	user=$(id -nu "$uid")
+	home=$(getent passwd "$uid" | cut -d: -f6)
+	# `until` filters on creation time, not last use, so an unused base image
+	# built months ago goes on the first run.
+	runuser -u "$user" -- env HOME="$home" DOCKER_HOST="unix://$sock" \
+		docker system prune -af --filter "until=168h"
+	pruned=1
+done
+
+if [ "$pruned" = 1 ]; then
+	touch "$stamp"
+fi

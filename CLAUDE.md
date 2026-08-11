@@ -205,7 +205,11 @@ package and non-positive values by `checkResources`, both before the VM starts. 
 the instance's life: resizing means `limactl edit` or destroy + create.
 
 `go run . list` reads the live `cpus`/`memory`/`disk` back out of
-`limactl list --format json`, where memory and disk are **bytes**.
+`limactl list --format json`, where memory and disk are **bytes**. That is the
+declared *size* only — Lima reports no usage figure, so disk pressure is a
+guest question (`docker system df`, `df -h /`) and `list` deliberately stays out
+of it. Keeping the disk from filling is the weekly `20-prune-docker` cron job;
+see the disk hygiene section of README.md.
 
 ### Guest OS pin
 
@@ -260,6 +264,15 @@ change in this repo.
   which runs that directory in name order under `flock` — jobs run one at a
   time and overlapping ticks queue instead of racing. Those jobs run against a
   live system, so every `apt-get` in them takes `-o DPkg::Lock::Timeout=120`.
+  A job that must run less often than the 6-hour tick throttles itself with a
+  stamp file (`20-prune-docker` uses `/var/lib/dev-vm/docker-prune.stamp` for
+  its weekly schedule) rather than taking a second cron line.
+- A cron job talking to Docker has to cross a user boundary: the runner is
+  root, Docker is rootless and root has no daemon. Resolve the login user from
+  the `/run/user/<uid>/docker.sock` path and re-enter it —
+  `runuser -u "$user" -- env HOME=… DOCKER_HOST="unix://$sock" docker …` — the
+  way `20-prune-docker` does. A missing socket means no daemon, so the job
+  no-ops instead of failing.
 - Templates, scripts and static files are embedded into the Go binary with
   `//go:embed` (see `embed.go`) and materialized into a temp dir at create
   time; `go run .` picks up edits automatically, a prebuilt `devvm` binary

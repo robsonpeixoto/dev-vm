@@ -311,6 +311,56 @@ limactl shell <name> sudo unattended-upgrade --dry-run --debug
 limactl shell <name> systemctl list-timers apt-daily\*
 ```
 
+## Disk hygiene
+
+The disk defaults to 50 GiB, and Docker images plus build cache are what fill
+it. A weekly prune is **on by default**:
+`/usr/local/lib/dev-vm/cron.d/20-prune-docker`, run by `dev-vm-cron` like the
+Docker updater. Because that runner ticks every 6 hours, the job stamps
+`/var/lib/dev-vm/docker-prune.stamp` and returns early until the stamp is a
+week old.
+
+```sh
+docker system prune -af --filter "until=168h"
+```
+
+- Removes stopped containers, unused images, unused networks and build cache
+  older than a week. **Volumes are never touched** — no `--volumes` — so
+  database and cache data survives.
+- `until` filters on *creation* time, not last use, so an unused base image
+  built months ago goes on the first run. Anything a running container uses
+  stays.
+- Docker is rootless, so the daemon is the login user's, on
+  `/run/user/<uid>/docker.sock`. Cron runs as root and resolves that user from
+  the socket path, so it prunes the same daemon `docker` talks to in a shell.
+- Don't want it: delete the file in the guest
+  (`sudo rm /usr/local/lib/dev-vm/cron.d/20-prune-docker`) — but provisioning
+  reinstalls it on the next boot, so drop the `mode: data` entry from
+  `lima/dev-vm.yaml` and recreate the VM to turn it off for good.
+
+Lima reports the disk *size*, not its usage, so `go run . list` cannot show how
+full it is. Ask the guest:
+
+```sh
+limactl shell <name> docker system df     # -v for a per-image breakdown
+limactl shell <name> df -h /
+```
+
+Reclaim space now, without waiting for the cron tick:
+
+```sh
+limactl shell <name> docker system prune -af    # images + build cache
+limactl shell <name> docker builder prune -af   # build cache only
+```
+
+Resizing is the painful part: `cpus`, `memory` and `disk` are baked into
+`~/.lima/<name>/lima.yaml` at create time. Pick the size up front —
+`go run . create myvm -disk 100`, or the `disk` key in
+`~/.config/dev-vm/settings.json` for every VM. Afterwards the only paths are
+`limactl stop <name>` plus `limactl edit <name>` to raise `disk:` (Lima grows a
+disk, never shrinks it), or `go run . destroy myvm && go run . create myvm
+-disk 100`, which throws the guest away.
+
 ## Provisioning steps
 
 Every step runs on **each boot** (all scripts are idempotent). The template
@@ -323,8 +373,9 @@ user), then readiness probes gate `limactl start`.
 1. **Data files** — GitHub key + ssh config, the global `DOCKER_HOST` snippet
    (`/etc/profile.d/docker-host.sh`), the unattended-upgrades policy in
    `/etc/apt/apt.conf.d/`, and the maintenance cron: the runner
-   `/usr/local/sbin/dev-vm-cron`, the Docker updater
-   `/usr/local/lib/dev-vm/cron.d/10-update-docker`, and `/etc/cron.d/dev-vm`,
+   `/usr/local/sbin/dev-vm-cron`, its jobs
+   `/usr/local/lib/dev-vm/cron.d/10-update-docker` and `20-prune-docker`, and
+   `/etc/cron.d/dev-vm`,
    whose single entry runs the runner every 6 hours (not at boot — provisioning
    installs the latest Docker packages on each boot anyway). The runner
    executes `/usr/local/lib/dev-vm/cron.d/*` in name order under `flock`, so
@@ -359,7 +410,7 @@ flowchart TD
         d1["~/.ssh/id_ed25519 + config + lima-github.conf<br>GitHub SSH access"]
         d2["/etc/profile.d/docker-host.sh<br>DOCKER_HOST for libraries"]
         d3["apt.conf.d/20auto-upgrades + 52dev-vm-unattended-upgrades<br>security-only upgrade policy"]
-        d4["dev-vm-cron + cron.d/10-update-docker<br>sequential jobs every 6h"]
+        d4["dev-vm-cron + cron.d/10-update-docker<br>+ cron.d/20-prune-docker<br>sequential jobs every 6h"]
     end
 
     subgraph system["system scripts (root)"]
