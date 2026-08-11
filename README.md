@@ -203,11 +203,18 @@ Every step runs on **each boot** (all scripts are idempotent). The template
 is flattened at create time, so after editing `lima/dev-vm.yaml` or
 `lima/scripts/*.sh` the VM must be recreated.
 
+Only the **first** boot downloads anything: the package installs sit behind a
+`packages_missing` guard from `/usr/local/lib/dev-vm/lib.sh`, so a restart
+does no keyring fetch, no `apt-get update` and no install, and boots fine
+without a network. Getting new packages is the maintenance cron's job, not
+the boot's.
+
 Order: data files, then system scripts (root), then user scripts (guest login
 user), then readiness probes gate `limactl start`.
 
 1. **Data files** — GitHub key + ssh config, the global `DOCKER_HOST` snippet
-   (`/etc/profile.d/docker-host.sh`), and the maintenance cron: the runner
+   (`/etc/profile.d/docker-host.sh`), the shell helpers the provision scripts
+   source (`/usr/local/lib/dev-vm/lib.sh`), and the maintenance cron: the runner
    `/usr/local/sbin/dev-vm-cron`, the Docker updater
    `/usr/local/lib/dev-vm/cron.d/10-update-docker`, and `/etc/cron.d/dev-vm`,
    whose single entry runs the runner every 6 hours (not at boot — provisioning
@@ -224,6 +231,8 @@ user), then readiness probes gate `limactl start`.
 5. **`ssh-known-hosts.sh`** — rewrites `~/.ssh/known_hosts` from live
    `ssh-keyscan github.com` output.
 6. **`omz-user.sh`** — installs oh-my-zsh (skipped if `~/.oh-my-zsh` exists).
+   The installer is pinned to a commit and checked against its `sha256` before
+   it runs, instead of being piped into a shell from `master`.
 7. **`dotfiles.sh`** — clones the bare repo to `~/.dotfiles`, checks it out
    over `$HOME` (clobbered files move to `~/tmp/config-backup`), and prepends
    the GitHub ssh stanza back onto `~/.ssh/config`. No-op without
@@ -238,7 +247,8 @@ flowchart TD
     subgraph data["data files (copied by root)"]
         d1["~/.ssh/id_ed25519 + config + lima-github.conf<br>GitHub SSH access"]
         d2["/etc/profile.d/docker-host.sh<br>DOCKER_HOST for libraries"]
-        d3["dev-vm-cron + cron.d/10-update-docker<br>sequential jobs every 6h"]
+        d3["/usr/local/lib/dev-vm/lib.sh<br>packages_missing guard"]
+        d4["dev-vm-cron + cron.d/10-update-docker<br>sequential jobs every 6h"]
     end
 
     subgraph system["system scripts (root)"]

@@ -1,8 +1,14 @@
 #!/bin/sh
 # Installs mise (https://mise.jdx.dev) from its official apt repo. Runs as
-# root on every boot, so it must be idempotent. Tool trust/install happens
-# per-user in mise-user.sh.
+# root on every boot, so it must be idempotent — and behind packages_missing,
+# so a boot with mise already installed downloads nothing. Tool trust/install
+# happens per-user in mise-user.sh.
 set -eux
+
+# shellcheck source=../files/dev-vm-lib.sh disable=SC1091
+. /usr/local/lib/dev-vm/lib.sh
+
+packages_missing mise || exit 0
 
 export DEBIAN_FRONTEND=noninteractive
 

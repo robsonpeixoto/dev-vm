@@ -71,6 +71,15 @@ provision:
   owner: "root:root"
   permissions: "644"
   overwrite: true
+# Shell helpers the provision scripts source; `data` entries land before the
+# first system script runs.
+- mode: data
+  file:
+    url: files/dev-vm-lib.sh
+  path: /usr/local/lib/dev-vm/lib.sh
+  owner: "root:root"
+  permissions: "644"
+  overwrite: true
 # Maintenance cron: one entry every 6 hours (not at boot — provisioning
 # already installs the latest packages on each boot), running the jobs in
 # /usr/local/lib/dev-vm/cron.d sequentially so they never fight for the dpkg

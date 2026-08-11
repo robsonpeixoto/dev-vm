@@ -221,6 +221,19 @@ the instance's life: resizing means `limactl edit` or destroy + create.
 - Put executable logic in `lima/scripts/*.sh`, reference it via `file.url`.
 - `#!/bin/sh` + `set -eux` (or `set -eu` when output would leak secrets).
 - Idempotent, always — the script reruns on every boot.
+- Idempotent is not enough for anything that hits the network: guard it so a
+  re-boot skips it entirely. Source `/usr/local/lib/dev-vm/lib.sh` (the
+  `lima/files/dev-vm-lib.sh` `mode: data` payload) and wrap keyring
+  downloads, `apt-get update` and installs in
+  `if packages_missing <pkg>…; then`. After the first boot the VM provisions
+  with no network at all, which is what makes an offline or flaky-mirror boot
+  succeed instead of failing the `limactl start`. Local, cheap work
+  (systemctl masking, a `grep -qxF` append) stays outside the guard so it
+  re-asserts every boot.
+- Never pipe a remote script straight into a shell. Pin it to a commit hash
+  and verify the download with `sha256sum -c` before running it, as
+  `omz-user.sh` does; bumping the pin means changing hash and commit
+  together.
 - Root work in `system`, per-user/systemd work in `user`, never mix.
 - No `DPkg::Lock::Timeout` in provision scripts: boot provisioning owns the
   dpkg lock, so waiting there would only hide a real conflict. The timeout
