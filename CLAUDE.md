@@ -92,8 +92,13 @@ Notes per mode:
 - **`data`** — writes a file, never executes it. Requires `path`; content
   comes from `content:` or `file:` (mutually exclusive). Defaults:
   `owner: "root:root"`, `permissions: 644`, `overwrite: true` (set
-  `overwrite: false` to write only if absent). Parent directories are created
-  as the owner user. reverse-sshfs mounts are not up yet at this point.
+  `overwrite: false` to write only if absent). Missing parent directories are
+  created **as root** regardless of `owner` (observed on Lima 2.2.0: a data
+  file under `{{.Home}}/.config/...` left `~/.config` root-owned and broke the
+  user's own writes there) — so never target a `{{.Home}}` subdirectory that
+  does not already exist; stage the file under `/usr/local/lib/dev-vm/` and
+  copy it in a `user` script instead. reverse-sshfs mounts are not up yet at
+  this point.
 - **`yq`** — edits an existing file in place with a yq `expression`, creating
   it if missing. `format` defaults to `auto` (from the extension); set it
   explicitly for unrecognized extensions. Fails if the target is not writable

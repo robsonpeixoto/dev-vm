@@ -401,7 +401,8 @@ user), then readiness probes gate `limactl start`.
 1. **Data files** — GitHub key + ssh config, the global `DOCKER_HOST` snippet
    (`/etc/profile.d/docker-host.sh`), the `DEV_VM`/`DEV_VM_NAME` markers
    (`/etc/profile.d/dev-vm.sh`), the rootless-Docker pasta override
-   (`~/.config/systemd/user/docker.service.d/override.conf`), the
+   (staged at `/usr/local/lib/dev-vm/docker-rootless-override.conf`;
+   `docker-user.sh` installs it into `~/.config/systemd/user/`), the
    unattended-upgrades policy in
    `/etc/apt/apt.conf.d/`, and the maintenance cron: the runner
    `/usr/local/sbin/dev-vm-cron`, its jobs
@@ -450,9 +451,11 @@ user), then readiness probes gate `limactl start`.
    over `$HOME` (clobbered files move to `~/tmp/config-backup`), and prepends
    the GitHub ssh stanza back onto `~/.ssh/config`. No-op without
    `DOTFILES_REPO`.
-10. **`docker-user.sh`** — `dockerd-rootless-setuptool.sh install`, selects the
+10. **`docker-user.sh`** — installs the pasta override into
+   `~/.config/systemd/user/docker.service.d/`, then
+   `dockerd-rootless-setuptool.sh install` and selects the
    `rootless` context. The daemon comes up with pasta networking instead of
-   slirp4netns: the `mode: data` override file sets
+   slirp4netns: the override file sets
    `DOCKERD_ROOTLESS_ROOTLESSKIT_NET=pasta` (with its `implicit` port driver)
    for faster container egress. Still experimental upstream — drop the override
    entry from `lima/dev-vm.yaml` and recreate to fall back to slirp4netns.

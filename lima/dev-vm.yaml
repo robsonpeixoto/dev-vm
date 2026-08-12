@@ -83,14 +83,15 @@ provision:
   permissions: "644"
   overwrite: true
 # Rootless Docker networking: pasta instead of the slirp4netns default, for
-# faster container egress. Lands before the user scripts run, so
-# dockerd-rootless-setuptool.sh (docker-user.sh) starts the daemon with it on
-# the first boot already.
+# faster container egress. Staged outside $HOME because data mode creates
+# missing parent directories as root, which would leave ~/.config unwritable
+# by the user; docker-user.sh installs it into the user's systemd tree before
+# setting the daemon up.
 - mode: data
   file:
     url: files/docker-rootless-override.conf
-  path: "{{.Home}}/.config/systemd/user/docker.service.d/override.conf"
-  owner: "{{.User}}"
+  path: /usr/local/lib/dev-vm/docker-rootless-override.conf
+  owner: "root:root"
   permissions: "644"
   overwrite: true
 # Unattended security upgrades for the whole OS; the script below installs the
