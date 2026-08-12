@@ -1,7 +1,7 @@
 # dev-vm
 
 Isolated Lima dev VM for macOS: own IP via vzNAT, no mounts, no port
-forwards, rootless Docker, zsh + oh-my-zsh, mise, GitHub SSH access.
+forwards, rootless Docker, zsh + oh-my-zsh, mise, neovim, GitHub SSH access.
 
 ```sh
 go run . create [name]    # create and start the VM
@@ -389,21 +389,23 @@ user), then readiness probes gate `limactl start`.
    sources `/etc/profile.d/docker-host.sh` from `/etc/zsh/zshenv` so
    non-login zsh (`limactl shell <name> <cmd>`) also gets `DOCKER_HOST`.
 4. **`mise-system.sh`** — installs mise from its apt repo.
-5. **`unattended-upgrades-system.sh`** — installs `unattended-upgrades` and
+5. **`neovim-system.sh`** — installs neovim from the official
+   `ppa:neovim-ppa/stable` PPA.
+6. **`unattended-upgrades-system.sh`** — installs `unattended-upgrades` and
    enables the `apt-daily` timers, so Ubuntu security updates (kernel,
    openssl, openssh) land without anyone asking. Policy lives in
    `/etc/apt/apt.conf.d/52dev-vm-unattended-upgrades`: security pockets only,
    no automatic reboot, unused kernels and dependencies removed.
-6. **`ssh-known-hosts.sh`** — rewrites `~/.ssh/known_hosts` from live
+7. **`ssh-known-hosts.sh`** — rewrites `~/.ssh/known_hosts` from live
    `ssh-keyscan github.com` output.
-7. **`omz-user.sh`** — installs oh-my-zsh (skipped if `~/.oh-my-zsh` exists).
-8. **`dotfiles.sh`** — clones the bare repo to `~/.dotfiles`, checks it out
+8. **`omz-user.sh`** — installs oh-my-zsh (skipped if `~/.oh-my-zsh` exists).
+9. **`dotfiles.sh`** — clones the bare repo to `~/.dotfiles`, checks it out
    over `$HOME` (clobbered files move to `~/tmp/config-backup`), and prepends
    the GitHub ssh stanza back onto `~/.ssh/config`. No-op without
    `DOTFILES_REPO`.
-9. **`docker-user.sh`** — `dockerd-rootless-setuptool.sh install`, selects the
+10. **`docker-user.sh`** — `dockerd-rootless-setuptool.sh install`, selects the
    `rootless` context.
-10. **`mise-user.sh`** — activates mise in `~/.zshrc` (unless the oh-my-zsh
+11. **`mise-user.sh`** — activates mise in `~/.zshrc` (unless the oh-my-zsh
    mise plugin already does), `mise trust --all`, `mise install`.
 
 ```mermaid
@@ -419,7 +421,8 @@ flowchart TD
         s1["docker-system.sh<br>Docker packages, mask system daemon"]
         s2["zsh-system.sh<br>install zsh, set login shell,<br>hook DOCKER_HOST into /etc/zsh/zshenv"]
         s3["mise-system.sh<br>install mise from apt repo"]
-        s4["unattended-upgrades-system.sh<br>enable OS security upgrades"]
+        s4["neovim-system.sh<br>install neovim from neovim-ppa/stable"]
+        s5["unattended-upgrades-system.sh<br>enable OS security upgrades"]
     end
 
     subgraph user["user scripts (login user)"]
@@ -436,7 +439,7 @@ flowchart TD
     end
 
     data --> system
-    s1 --> s2 --> s3 --> s4
+    s1 --> s2 --> s3 --> s4 --> s5
     system --> user
     u1 --> u2 --> u3 --> u4 --> u5
     user --> probes

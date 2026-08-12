@@ -133,6 +133,9 @@ provision:
     url: scripts/mise-system.sh
 - mode: system
   file:
+    url: scripts/neovim-system.sh
+- mode: system
+  file:
     url: scripts/unattended-upgrades-system.sh
 # known_hosts is user state: `boot` mode would run as root, before this user
 # exists, and write /root/.ssh/known_hosts instead.
