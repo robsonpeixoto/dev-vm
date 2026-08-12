@@ -268,8 +268,8 @@ change in this repo.
   provisioning); `cron.d/05-upgrade-security` calls `unattended-upgrade`
   itself, under the policy in the `mode: data` file
   `lima/files/apt/52dev-vm-unattended-upgrades`. That policy is scoped to the
-  security pockets, so anything needing a non-security upgrade (Docker, the
-  neovim toolchain) keeps its own job in `cron.d`. Never re-enable those
+  security pockets, so anything needing a non-security upgrade (Docker, mise,
+  the neovim toolchain) keeps its own job in `cron.d`. Never re-enable those
   timers: a second scheduler is what makes lock races possible.
 - `05-upgrade-security` runs the tick's single `apt-get update` (with a bounded
   retry, since the lists lock has no built-in wait), so later jobs install from

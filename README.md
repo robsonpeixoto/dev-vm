@@ -313,6 +313,9 @@ The jobs, in the order they run:
   `Unattended-Upgrade::Allowed-Origins` to match; folding it in would mean
   allowing the whole Docker origin, which is a feature-version upgrade, not a
   security one.
+- **`12-update-mise`** — same story as Docker: mise's apt repo publishes no
+  security suite, so the security-only policy never touches it and this job
+  carries its upgrades.
 - **`15-update-neovim`** — neovim is not an apt package at all (official
   release tarball), so no apt updater can reach it;
   `/usr/local/lib/dev-vm/install-neovim` compares the installed version against
@@ -322,8 +325,8 @@ The jobs, in the order they run:
   ships `build-essential` security fixes.
 - **`20-prune-docker`** — weekly, see [disk hygiene](#disk-hygiene).
 
-`10-` and `15-` do not run their own `apt-get update`: `05-` refreshed the
-lists seconds earlier in the same tick.
+`10-`, `12-` and `15-` do not run their own `apt-get update`: `05-` refreshed
+the lists seconds earlier in the same tick.
 
 Check the policy from inside the guest:
 
@@ -400,7 +403,8 @@ user), then readiness probes gate `limactl start`.
    `/etc/apt/apt.conf.d/`, and the maintenance cron: the runner
    `/usr/local/sbin/dev-vm-cron`, its jobs
    `/usr/local/lib/dev-vm/cron.d/05-upgrade-security`, `10-update-docker`,
-   `15-update-neovim` and `20-prune-docker`, the neovim installer those jobs and
+   `12-update-mise`, `15-update-neovim` and `20-prune-docker`, the neovim
+   installer those jobs and
    `neovim-system.sh` share (`/usr/local/lib/dev-vm/install-neovim`), and
    `/etc/cron.d/dev-vm`,
    whose single entry runs the runner every 6 hours (not at boot — provisioning
@@ -453,7 +457,7 @@ flowchart TD
         d1["~/.ssh/id_ed25519 + config + lima-github.conf<br>GitHub SSH access"]
         d2["/etc/profile.d/docker-host.sh<br>DOCKER_HOST for libraries<br>/etc/profile.d/dev-vm.sh<br>DEV_VM + DEV_VM_NAME markers"]
         d3["apt.conf.d/52dev-vm-unattended-upgrades<br>security-only upgrade policy"]
-        d4["dev-vm-cron + cron.d/05-upgrade-security<br>+ cron.d/10-update-docker + cron.d/15-update-neovim<br>+ cron.d/20-prune-docker<br>sequential jobs every 6h"]
+        d4["dev-vm-cron + cron.d/05-upgrade-security<br>+ cron.d/10-update-docker + cron.d/12-update-mise<br>+ cron.d/15-update-neovim + cron.d/20-prune-docker<br>sequential jobs every 6h"]
         d5["install-neovim<br>shared neovim tarball installer"]
     end
 
