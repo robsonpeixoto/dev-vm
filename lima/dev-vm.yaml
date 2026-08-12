@@ -74,6 +74,14 @@ provision:
   owner: "root:root"
   permissions: "644"
   overwrite: true
+# DEV_VM/DEV_VM_NAME markers, reaching every shell the same way.
+- mode: data
+  file:
+    url: files/dev-vm.sh
+  path: /etc/profile.d/dev-vm.sh
+  owner: "root:root"
+  permissions: "644"
+  overwrite: true
 # Unattended security upgrades for the whole OS; the script below installs the
 # package and masks its timers, and cron.d/05-upgrade-security runs the binary
 # under this policy.

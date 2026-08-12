@@ -393,7 +393,8 @@ Order: data files, then system scripts (root), then user scripts (guest login
 user), then readiness probes gate `limactl start`.
 
 1. **Data files** — GitHub key + ssh config, the global `DOCKER_HOST` snippet
-   (`/etc/profile.d/docker-host.sh`), the unattended-upgrades policy in
+   (`/etc/profile.d/docker-host.sh`), the `DEV_VM`/`DEV_VM_NAME` markers
+   (`/etc/profile.d/dev-vm.sh`), the unattended-upgrades policy in
    `/etc/apt/apt.conf.d/`, and the maintenance cron: the runner
    `/usr/local/sbin/dev-vm-cron`, its jobs
    `/usr/local/lib/dev-vm/cron.d/05-upgrade-security`, `10-update-docker`,
@@ -410,8 +411,9 @@ user), then readiness probes gate `limactl start`.
    (with `docker-ce-rootless-extras`), then masks the system-wide
    `docker`/`containerd` units so only the rootless daemon exists.
 3. **`zsh-system.sh`** — installs zsh + git, `chsh` the guest user to zsh, and
-   sources `/etc/profile.d/docker-host.sh` from `/etc/zsh/zshenv` so
-   non-login zsh (`limactl shell <name> <cmd>`) also gets `DOCKER_HOST`.
+   sources `/etc/profile.d/docker-host.sh` and `/etc/profile.d/dev-vm.sh` from
+   `/etc/zsh/zshenv` so non-login zsh (`limactl shell <name> <cmd>`) also gets
+   `DOCKER_HOST`, `DEV_VM` and `DEV_VM_NAME`.
 4. **`mise-system.sh`** — installs mise from its apt repo.
 5. **`neovim-system.sh`** — installs `curl` plus the parser toolchain
    `nvim-treesitter` shells out to and the tarball does not ship
@@ -443,7 +445,7 @@ user), then readiness probes gate `limactl start`.
 flowchart TD
     subgraph data["data files (copied by root)"]
         d1["~/.ssh/id_ed25519 + config + lima-github.conf<br>GitHub SSH access"]
-        d2["/etc/profile.d/docker-host.sh<br>DOCKER_HOST for libraries"]
+        d2["/etc/profile.d/docker-host.sh<br>DOCKER_HOST for libraries<br>/etc/profile.d/dev-vm.sh<br>DEV_VM + DEV_VM_NAME markers"]
         d3["apt.conf.d/52dev-vm-unattended-upgrades<br>security-only upgrade policy"]
         d4["dev-vm-cron + cron.d/05-upgrade-security<br>+ cron.d/10-update-docker + cron.d/15-update-neovim<br>+ cron.d/20-prune-docker<br>sequential jobs every 6h"]
         d5["install-neovim<br>shared neovim tarball installer"]
@@ -451,7 +453,7 @@ flowchart TD
 
     subgraph system["system scripts (root)"]
         s1["docker-system.sh<br>Docker packages, mask system daemon"]
-        s2["zsh-system.sh<br>install zsh, set login shell,<br>hook DOCKER_HOST into /etc/zsh/zshenv"]
+        s2["zsh-system.sh<br>install zsh, set login shell,<br>hook both profile.d files into /etc/zsh/zshenv"]
         s3["mise-system.sh<br>install mise from apt repo"]
         s4["neovim-system.sh<br>install neovim from the release tarball<br>+ tree-sitter-cli and build-essential"]
         s5["unattended-upgrades-system.sh<br>install unattended-upgrades,<br>mask its apt-daily timers"]

@@ -15,7 +15,9 @@ chsh -s /usr/bin/zsh "{{.User}}"
 # (login; it sources /etc/profile and therefore /etc/profile.d/*.sh), then
 # ~/.zprofile, /etc/zsh/zshrc, ~/.zshrc. Only zshenv covers non-login
 # non-interactive shells, which is what `limactl shell <name> <cmd>` and
-# anything driving the VM over ssh get. Hooking DOCKER_HOST in there keeps it
-# out of ~/.zshrc and ~/.bashrc, which a dotfiles checkout owns.
-line='[ -r /etc/profile.d/docker-host.sh ] && . /etc/profile.d/docker-host.sh'
-grep -qxF "$line" /etc/zsh/zshenv 2>/dev/null || echo "$line" >>/etc/zsh/zshenv
+# anything driving the VM over ssh get. Hooking DOCKER_HOST and DEV_VM there
+# keeps them out of ~/.zshrc and ~/.bashrc, which a dotfiles checkout owns.
+for f in docker-host.sh dev-vm.sh; do
+    line="[ -r /etc/profile.d/$f ] && . /etc/profile.d/$f"
+    grep -qxF "$line" /etc/zsh/zshenv 2>/dev/null || echo "$line" >>/etc/zsh/zshenv
+done
