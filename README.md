@@ -290,7 +290,7 @@ Every new LTS has to pass all three on that fresh create:
 
 ## Staying patched
 
-Two updaters, split by what their repo publishes:
+Three updaters, split by what their repo publishes:
 
 - **Ubuntu** — `unattended-upgrades`, enabled by
   `unattended-upgrades-system.sh` and driven by the `apt-daily` /
@@ -305,6 +305,9 @@ Two updaters, split by what their repo publishes:
   a feature-version upgrade, not a security one. It runs under `flock` and
   passes `-o DPkg::Lock::Timeout=120`, so it waits for an unattended-upgrades
   run rather than losing the dpkg lock race.
+- **Neovim** — `/usr/local/lib/dev-vm/cron.d/15-update-neovim`, same runner,
+  same 6-hour tick, same lock timeout. `ppa:neovim-ppa/stable` has no security
+  suite either, so `unattended-upgrades` never touches it.
 
 Check the policy from inside the guest:
 
@@ -376,7 +379,8 @@ user), then readiness probes gate `limactl start`.
    (`/etc/profile.d/docker-host.sh`), the unattended-upgrades policy in
    `/etc/apt/apt.conf.d/`, and the maintenance cron: the runner
    `/usr/local/sbin/dev-vm-cron`, its jobs
-   `/usr/local/lib/dev-vm/cron.d/10-update-docker` and `20-prune-docker`, and
+   `/usr/local/lib/dev-vm/cron.d/10-update-docker`, `15-update-neovim` and
+   `20-prune-docker`, and
    `/etc/cron.d/dev-vm`,
    whose single entry runs the runner every 6 hours (not at boot — provisioning
    installs the latest Docker packages on each boot anyway). The runner
@@ -414,7 +418,7 @@ flowchart TD
         d1["~/.ssh/id_ed25519 + config + lima-github.conf<br>GitHub SSH access"]
         d2["/etc/profile.d/docker-host.sh<br>DOCKER_HOST for libraries"]
         d3["apt.conf.d/20auto-upgrades + 52dev-vm-unattended-upgrades<br>security-only upgrade policy"]
-        d4["dev-vm-cron + cron.d/10-update-docker<br>+ cron.d/20-prune-docker<br>sequential jobs every 6h"]
+        d4["dev-vm-cron + cron.d/10-update-docker<br>+ cron.d/15-update-neovim + cron.d/20-prune-docker<br>sequential jobs every 6h"]
     end
 
     subgraph system["system scripts (root)"]
