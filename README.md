@@ -306,8 +306,11 @@ Three updaters, split by what their repo publishes:
   passes `-o DPkg::Lock::Timeout=120`, so it waits for an unattended-upgrades
   run rather than losing the dpkg lock race.
 - **Neovim** — `/usr/local/lib/dev-vm/cron.d/15-update-neovim`, same runner,
-  same 6-hour tick, same lock timeout. `ppa:neovim-ppa/stable` has no security
-  suite either, so `unattended-upgrades` never touches it.
+  same 6-hour tick. It is not an apt package at all — it comes from the
+  official release tarball — so no apt updater can reach it, and the job needs
+  no dpkg lock timeout. The job just runs
+  `/usr/local/lib/dev-vm/install-neovim`, which compares the installed version
+  against the latest release and exits when they match.
 
 Check the policy from inside the guest:
 
@@ -380,7 +383,8 @@ user), then readiness probes gate `limactl start`.
    `/etc/apt/apt.conf.d/`, and the maintenance cron: the runner
    `/usr/local/sbin/dev-vm-cron`, its jobs
    `/usr/local/lib/dev-vm/cron.d/10-update-docker`, `15-update-neovim` and
-   `20-prune-docker`, and
+   `20-prune-docker`, the neovim installer those jobs and
+   `neovim-system.sh` share (`/usr/local/lib/dev-vm/install-neovim`), and
    `/etc/cron.d/dev-vm`,
    whose single entry runs the runner every 6 hours (not at boot — provisioning
    installs the latest Docker packages on each boot anyway). The runner
@@ -393,8 +397,12 @@ user), then readiness probes gate `limactl start`.
    sources `/etc/profile.d/docker-host.sh` from `/etc/zsh/zshenv` so
    non-login zsh (`limactl shell <name> <cmd>`) also gets `DOCKER_HOST`.
 4. **`mise-system.sh`** — installs mise from its apt repo.
-5. **`neovim-system.sh`** — installs neovim from the official
-   `ppa:neovim-ppa/stable` PPA.
+5. **`neovim-system.sh`** — installs `curl`, then runs
+   `/usr/local/lib/dev-vm/install-neovim`, which unpacks the official
+   pre-built archive into `/opt/nvim-linux-<arch>` (`x86_64` or `arm64`,
+   picked from `uname -m`) and links it at `/usr/local/bin/nvim`. The same
+   installer backs the `15-update-neovim` cron job, so boot and upgrade share
+   one code path.
 6. **`unattended-upgrades-system.sh`** — installs `unattended-upgrades` and
    enables the `apt-daily` timers, so Ubuntu security updates (kernel,
    openssl, openssh) land without anyone asking. Policy lives in
@@ -419,13 +427,14 @@ flowchart TD
         d2["/etc/profile.d/docker-host.sh<br>DOCKER_HOST for libraries"]
         d3["apt.conf.d/20auto-upgrades + 52dev-vm-unattended-upgrades<br>security-only upgrade policy"]
         d4["dev-vm-cron + cron.d/10-update-docker<br>+ cron.d/15-update-neovim + cron.d/20-prune-docker<br>sequential jobs every 6h"]
+        d5["install-neovim<br>shared neovim tarball installer"]
     end
 
     subgraph system["system scripts (root)"]
         s1["docker-system.sh<br>Docker packages, mask system daemon"]
         s2["zsh-system.sh<br>install zsh, set login shell,<br>hook DOCKER_HOST into /etc/zsh/zshenv"]
         s3["mise-system.sh<br>install mise from apt repo"]
-        s4["neovim-system.sh<br>install neovim from neovim-ppa/stable"]
+        s4["neovim-system.sh<br>install neovim from the release tarball"]
         s5["unattended-upgrades-system.sh<br>enable OS security upgrades"]
     end
 

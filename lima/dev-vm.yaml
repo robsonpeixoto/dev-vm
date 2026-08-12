@@ -103,6 +103,13 @@ provision:
   overwrite: true
 - mode: data
   file:
+    url: files/install-neovim
+  path: /usr/local/lib/dev-vm/install-neovim
+  owner: "root:root"
+  permissions: "755"
+  overwrite: true
+- mode: data
+  file:
     url: files/cron.d/10-update-docker
   path: /usr/local/lib/dev-vm/cron.d/10-update-docker
   owner: "root:root"

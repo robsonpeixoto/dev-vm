@@ -1,0 +1,54 @@
+#!/bin/sh
+# Installs or updates neovim from the official pre-built archives
+# (https://neovim.io/doc/install/#pre-built-archives). The PPA is not a usable
+# source here, so the release tarball is the supported path. Shared by
+# neovim-system.sh (every boot) and cron.d/15-update-neovim (every tick), so it
+# must be idempotent: it resolves the latest release tag, compares it with the
+# installed binary, and does nothing when they match.
+#
+# No apt here — the cron job runs against a live system and the boot script
+# already installs curl.
+set -eu
+
+case "$(uname -m)" in
+x86_64 | amd64) arch=x86_64 ;;
+aarch64 | arm64) arch=arm64 ;;
+*)
+    echo "install-neovim: unsupported architecture $(uname -m)" >&2
+    exit 1
+    ;;
+esac
+
+prefix=/opt/nvim-linux-$arch
+url=https://github.com/neovim/neovim/releases/latest/download/nvim-linux-$arch.tar.gz
+
+# The /releases/latest redirect names the tag, so the version is readable
+# without the GitHub API and its unauthenticated rate limit.
+tag=$(curl -fsSIL -o /dev/null -w '%{url_effective}' \
+    https://github.com/neovim/neovim/releases/latest)
+tag=${tag##*/}
+case "$tag" in
+v*) ;;
+*)
+    echo "install-neovim: could not resolve the latest release tag" >&2
+    exit 1
+    ;;
+esac
+
+installed=
+if [ -x "$prefix/bin/nvim" ]; then
+    installed=$("$prefix/bin/nvim" --version | head -n1 | cut -d' ' -f2)
+fi
+
+if [ "$installed" != "$tag" ]; then
+    # Staged inside /opt so the swap is a rename on the same filesystem, and
+    # a failed download leaves the working install untouched.
+    tmp=$(mktemp -d /opt/.nvim-install.XXXXXX)
+    trap 'rm -rf "$tmp"' EXIT
+    curl -fsSL -o "$tmp/nvim.tar.gz" "$url"
+    tar -C "$tmp" -xzf "$tmp/nvim.tar.gz"
+    rm -rf "$prefix"
+    mv "$tmp/nvim-linux-$arch" "$prefix"
+fi
+
+ln -sfn "$prefix/bin/nvim" /usr/local/bin/nvim
