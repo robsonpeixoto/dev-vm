@@ -388,7 +388,10 @@ disk, never shrinks it), or `go run . destroy myvm && go run . create myvm
 
 ## Provisioning steps
 
-Every step runs on **each boot** (all scripts are idempotent). The template
+Every step runs on **each boot** (all scripts are idempotent). The install
+scripts skip their apt and download work once everything is in place, so only
+the first boot goes to the network and restarts stay fast; upgrades are the
+cron jobs' work ([staying patched](#staying-patched)). The template
 is flattened at create time, so after editing `lima/dev-vm.yaml` or
 `lima/scripts/*.sh` the VM must be recreated.
 
@@ -407,28 +410,33 @@ user), then readiness probes gate `limactl start`.
    installer those jobs and
    `neovim-system.sh` share (`/usr/local/lib/dev-vm/install-neovim`), and
    `/etc/cron.d/dev-vm`,
-   whose single entry runs the runner every 6 hours (not at boot — provisioning
-   installs the latest Docker packages on each boot anyway). The runner
+   whose single entry runs the runner every 6 hours (not at boot — the runner
+   exits until `/run/lima-boot-done` appears, so an `@reboot` line would be a
+   no-op). The runner
    executes `/usr/local/lib/dev-vm/cron.d/*` in name order under `flock`, so
    jobs never run in parallel or fight for the dpkg lock, and it skips a tick
    entirely while `/run/lima-boot-done` is missing, i.e. while boot
    provisioning still owns apt.
 2. **`docker-system.sh`** — installs Docker Engine from Docker's apt repo
-   (with `docker-ce-rootless-extras`), then masks the system-wide
-   `docker`/`containerd` units so only the rootless daemon exists.
-3. **`zsh-system.sh`** — installs zsh + git, `chsh` the guest user to zsh, and
+   (with `docker-ce-rootless-extras` and `passt`) when any of it is missing,
+   then masks the system-wide `docker`/`containerd` units so only the rootless
+   daemon exists. Upgrades come from `10-update-docker`.
+3. **`zsh-system.sh`** — installs zsh + git when missing, `chsh` the guest
+   user to zsh, and
    sources `/etc/profile.d/docker-host.sh` and `/etc/profile.d/dev-vm.sh` from
    `/etc/zsh/zshenv` so non-login zsh (`limactl shell <name> <cmd>`) also gets
    `DOCKER_HOST`, `DEV_VM` and `DEV_VM_NAME`.
-4. **`mise-system.sh`** — installs mise from its apt repo.
+4. **`mise-system.sh`** — installs mise from its apt repo when it is missing;
+   upgrades come from `12-update-mise`.
 5. **`neovim-system.sh`** — installs `curl` plus the parser toolchain
    `nvim-treesitter` shells out to and the tarball does not ship
-   (`tree-sitter-cli` and `build-essential`), then runs
+   (`tree-sitter-cli` and `build-essential`) when any of it is missing, then —
+   only when `/usr/local/bin/nvim` is absent — runs
    `/usr/local/lib/dev-vm/install-neovim`, which unpacks the official
    pre-built archive into `/opt/nvim-linux-<arch>` (`x86_64` or `arm64`,
    picked from `uname -m`) and links it at `/usr/local/bin/nvim`. The same
-   installer backs the `15-update-neovim` cron job, so boot and upgrade share
-   one code path.
+   installer backs the `15-update-neovim` cron job, so first boot and upgrade
+   share one code path.
 6. **`unattended-upgrades-system.sh`** — installs `unattended-upgrades` and
    masks its `apt-daily` timers, leaving `dev-vm-cron` the only apt scheduler;
    `cron.d/05-upgrade-security` calls the binary, so Ubuntu security updates

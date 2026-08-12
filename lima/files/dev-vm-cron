@@ -17,7 +17,7 @@ lock=/run/lock/dev-vm-cron
 # Boot provisioning drives apt too, and it is the one apt user this lock cannot
 # reach. Lima writes /run/lima-boot-done when provisioning finishes, so a tick
 # landing mid-boot is skipped rather than raced; the next one is 6 hours out and
-# provisioning already installed everything these jobs would.
+# provisioning installed anything that was missing, so nothing urgent waits.
 [ -e /run/lima-boot-done ] || exit 0
 
 # Re-exec under flock once; the guard keeps the second run from looping.

@@ -1,13 +1,21 @@
 #!/bin/sh
 # Installs zsh and makes it the guest user's login shell. Runs as root on
-# every boot, so it must be idempotent. git is the oh-my-zsh installer's
-# prerequisite (curl comes with docker-system.sh); the installer itself runs
-# per-user in omz-user.sh.
+# every boot, so it must be idempotent: the apt work is skipped once both
+# packages are installed (security fixes then come from 05-upgrade-security).
+# git is the oh-my-zsh installer's prerequisite (curl comes with
+# docker-system.sh); the installer itself runs per-user in omz-user.sh.
 set -eux
 
 export DEBIAN_FRONTEND=noninteractive
-apt-get update
-apt-get install -y zsh git
+
+installed() {
+    dpkg-query -W -f='${db:Status-Status}' "$1" 2>/dev/null | grep -qx installed
+}
+
+if ! installed zsh || ! installed git; then
+    apt-get update
+    apt-get install -y zsh git
+fi
 
 chsh -s /usr/bin/zsh "{{.User}}"
 

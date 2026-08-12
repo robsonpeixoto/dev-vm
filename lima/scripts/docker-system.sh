@@ -8,28 +8,46 @@
 set -eux
 
 export DEBIAN_FRONTEND=noninteractive
-apt-get update
+
+installed() {
+    dpkg-query -W -f='${db:Status-Status}' "$1" 2>/dev/null | grep -qx installed
+}
+
 # ca-certificates + curl fetch the repo key; uidmap (newuidmap/newgidmap) and
 # dbus-user-session are rootless Docker's own prerequisites; passt provides
 # pasta, the network driver selected by the docker.service override file.
-apt-get install -y ca-certificates curl uidmap dbus-user-session passt
-
-# Docker's official apt repo (see https://docs.docker.com/engine/install/ubuntu/).
-install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-chmod a+r /etc/apt/keyrings/docker.asc
-
-architecture=$(dpkg --print-architecture)
-# shellcheck source=/dev/null
-codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
-echo "deb [arch=$architecture signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $codename stable" \
-    >/etc/apt/sources.list.d/docker.list
-
-apt-get update
 # docker-ce-rootless-extras carries dockerd-rootless-setuptool.sh, rootlesskit
 # and slirp4netns — without it there is no rootless daemon to set up.
-apt-get install -y docker-ce docker-ce-cli containerd.io docker-ce-rootless-extras \
-    docker-buildx-plugin docker-compose-plugin
+packages="ca-certificates curl uidmap dbus-user-session passt
+    docker-ce docker-ce-cli containerd.io docker-ce-rootless-extras
+    docker-buildx-plugin docker-compose-plugin"
+
+# Only the first boot goes to the network; once everything is installed the
+# whole apt block is skipped and upgrades are cron's job (10-update-docker).
+missing=0
+for pkg in $packages; do
+    installed "$pkg" || missing=1
+done
+
+if [ "$missing" = 1 ]; then
+    apt-get update
+    apt-get install -y ca-certificates curl
+
+    # Docker's official apt repo (see https://docs.docker.com/engine/install/ubuntu/).
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+    chmod a+r /etc/apt/keyrings/docker.asc
+
+    architecture=$(dpkg --print-architecture)
+    # shellcheck source=/dev/null
+    codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
+    echo "deb [arch=$architecture signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $codename stable" \
+        >/etc/apt/sources.list.d/docker.list
+
+    apt-get update
+    # shellcheck disable=SC2086
+    apt-get install -y $packages
+fi
 
 # The rootless daemon runs its own dockerd + containerd inside the user's
 # namespace, so the packaged system-wide units are not merely unused: a second

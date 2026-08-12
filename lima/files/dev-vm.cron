@@ -2,8 +2,9 @@
 # dev-vm-cron runs /usr/local/lib/dev-vm/cron.d/* sequentially under a lock;
 # adding a job means dropping an executable file in that directory, not adding
 # a cron line that would run in parallel with this one.
-# No @reboot entry: provisioning runs on every boot and already installs the
-# latest packages, so a boot-time run would only race for the dpkg lock.
+# No @reboot entry: dev-vm-cron exits without running anything until Lima
+# writes /run/lima-boot-done, so an @reboot run would be a no-op; the first
+# upgrades after a boot land on the next regular tick.
 SHELL=/bin/sh
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 30 */6 * * * root /usr/local/sbin/dev-vm-cron
