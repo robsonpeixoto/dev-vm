@@ -1,0 +1,10 @@
+#!/bin/sh
+# Upgrade git to the git-core PPA's latest version. The PPA publishes no
+# security suite for unattended-upgrades to match, so this job carries git's
+# upgrades. Run by dev-vm-cron, never directly by cron. No apt-get update here:
+# 05-upgrade-security refreshed the lists at the top of this tick. No lock
+# timeout either — the runner's flock and the masked apt-daily timers leave
+# nothing else driving apt.
+set -eu
+export DEBIAN_FRONTEND=noninteractive
+apt-get install -y --only-upgrade git

@@ -313,6 +313,9 @@ The jobs, in the order they run:
   `Unattended-Upgrade::Allowed-Origins` to match; folding it in would mean
   allowing the whole Docker origin, which is a feature-version upgrade, not a
   security one.
+- **`11-update-git`** — git comes from the git-core PPA (upstream releases,
+  not just Ubuntu's security-patched snapshot), and the PPA publishes no
+  security suite either, so this job carries its upgrades.
 - **`12-update-mise`** — same story as Docker: mise's apt repo publishes no
   security suite, so the security-only policy never touches it and this job
   carries its upgrades.
@@ -325,8 +328,8 @@ The jobs, in the order they run:
   ships `build-essential` security fixes.
 - **`20-prune-docker`** — weekly, see [disk hygiene](#disk-hygiene).
 
-`10-`, `12-` and `15-` do not run their own `apt-get update`: `05-` refreshed
-the lists seconds earlier in the same tick.
+`10-`, `11-`, `12-` and `15-` do not run their own `apt-get update`: `05-`
+refreshed the lists seconds earlier in the same tick.
 
 Check the policy from inside the guest:
 
@@ -407,8 +410,8 @@ user), then readiness probes gate `limactl start`.
    `/etc/apt/apt.conf.d/`, and the maintenance cron: the runner
    `/usr/local/sbin/dev-vm-cron`, its jobs
    `/usr/local/lib/dev-vm/cron.d/05-upgrade-security`, `10-update-docker`,
-   `12-update-mise`, `15-update-neovim` and `20-prune-docker`, the neovim
-   installer those jobs and
+   `11-update-git`, `12-update-mise`, `15-update-neovim` and `20-prune-docker`,
+   the neovim installer those jobs and
    `neovim-system.sh` share (`/usr/local/lib/dev-vm/install-neovim`), and
    `/etc/cron.d/dev-vm`,
    whose single entry runs the runner every 6 hours (not at boot — the runner
@@ -422,14 +425,17 @@ user), then readiness probes gate `limactl start`.
    (with `docker-ce-rootless-extras` and `passt`) when any of it is missing,
    then masks the system-wide `docker`/`containerd` units so only the rootless
    daemon exists. Upgrades come from `10-update-docker`.
-3. **`zsh-system.sh`** — installs zsh + git when missing, `chsh` the guest
+3. **`git-system.sh`** — installs git from the git-core PPA
+   (`ppa:git-core/ppa`, upstream releases) when the PPA or git is missing;
+   upgrades come from `11-update-git`.
+4. **`zsh-system.sh`** — installs zsh when missing, `chsh` the guest
    user to zsh, and
    sources `/etc/profile.d/docker-host.sh` and `/etc/profile.d/dev-vm.sh` from
    `/etc/zsh/zshenv` so non-login zsh (`limactl shell <name> <cmd>`) also gets
    `DOCKER_HOST`, `DEV_VM` and `DEV_VM_NAME`.
-4. **`mise-system.sh`** — installs mise from its apt repo when it is missing;
+5. **`mise-system.sh`** — installs mise from its apt repo when it is missing;
    upgrades come from `12-update-mise`.
-5. **`neovim-system.sh`** — installs `curl` plus the parser toolchain
+6. **`neovim-system.sh`** — installs `curl` plus the parser toolchain
    `nvim-treesitter` shells out to and the tarball does not ship
    (`tree-sitter-cli` and `build-essential`) when any of it is missing, then —
    only when `/usr/local/bin/nvim` is absent — runs
@@ -438,20 +444,20 @@ user), then readiness probes gate `limactl start`.
    picked from `uname -m`) and links it at `/usr/local/bin/nvim`. The same
    installer backs the `15-update-neovim` cron job, so first boot and upgrade
    share one code path.
-6. **`unattended-upgrades-system.sh`** — installs `unattended-upgrades` and
+7. **`unattended-upgrades-system.sh`** — installs `unattended-upgrades` and
    masks its `apt-daily` timers, leaving `dev-vm-cron` the only apt scheduler;
    `cron.d/05-upgrade-security` calls the binary, so Ubuntu security updates
    (kernel, openssl, openssh) land without anyone asking. Policy lives in
    `/etc/apt/apt.conf.d/52dev-vm-unattended-upgrades`: security pockets only,
    no automatic reboot, unused kernels and dependencies removed.
-7. **`ssh-known-hosts.sh`** — rewrites `~/.ssh/known_hosts` from live
+8. **`ssh-known-hosts.sh`** — rewrites `~/.ssh/known_hosts` from live
    `ssh-keyscan github.com` output.
-8. **`omz-user.sh`** — installs oh-my-zsh (skipped if `~/.oh-my-zsh` exists).
-9. **`dotfiles.sh`** — clones the bare repo to `~/.dotfiles`, checks it out
+9. **`omz-user.sh`** — installs oh-my-zsh (skipped if `~/.oh-my-zsh` exists).
+10. **`dotfiles.sh`** — clones the bare repo to `~/.dotfiles`, checks it out
    over `$HOME` (clobbered files move to `~/tmp/config-backup`), and prepends
    the GitHub ssh stanza back onto `~/.ssh/config`. No-op without
    `DOTFILES_REPO`.
-10. **`docker-user.sh`** — installs the pasta override into
+11. **`docker-user.sh`** — installs the pasta override into
    `~/.config/systemd/user/docker.service.d/`, then
    `dockerd-rootless-setuptool.sh install` and selects the
    `rootless` context. The daemon comes up with pasta networking instead of
@@ -459,7 +465,7 @@ user), then readiness probes gate `limactl start`.
    `DOCKERD_ROOTLESS_ROOTLESSKIT_NET=pasta` (with its `implicit` port driver)
    for faster container egress. Still experimental upstream — drop the override
    entry from `lima/dev-vm.yaml` and recreate to fall back to slirp4netns.
-11. **`mise-user.sh`** — activates mise in `~/.zshrc` (unless the oh-my-zsh
+12. **`mise-user.sh`** — activates mise in `~/.zshrc` (unless the oh-my-zsh
    mise plugin already does), `mise trust --all`, `mise install`.
 
 ```mermaid
@@ -468,12 +474,13 @@ flowchart TD
         d1["~/.ssh/id_ed25519 + config + lima-github.conf<br>GitHub SSH access"]
         d2["/etc/profile.d/docker-host.sh<br>DOCKER_HOST for libraries<br>/etc/profile.d/dev-vm.sh<br>DEV_VM + DEV_VM_NAME markers"]
         d3["apt.conf.d/52dev-vm-unattended-upgrades<br>security-only upgrade policy"]
-        d4["dev-vm-cron + cron.d/05-upgrade-security<br>+ cron.d/10-update-docker + cron.d/12-update-mise<br>+ cron.d/15-update-neovim + cron.d/20-prune-docker<br>sequential jobs every 6h"]
+        d4["dev-vm-cron + cron.d/05-upgrade-security<br>+ cron.d/10-update-docker + cron.d/11-update-git<br>+ cron.d/12-update-mise + cron.d/15-update-neovim<br>+ cron.d/20-prune-docker<br>sequential jobs every 6h"]
         d5["install-neovim<br>shared neovim tarball installer"]
     end
 
     subgraph system["system scripts (root)"]
         s1["docker-system.sh<br>Docker packages, mask system daemon"]
+        s1b["git-system.sh<br>install git from the git-core PPA"]
         s2["zsh-system.sh<br>install zsh, set login shell,<br>hook both profile.d files into /etc/zsh/zshenv"]
         s3["mise-system.sh<br>install mise from apt repo"]
         s4["neovim-system.sh<br>install neovim from the release tarball<br>+ tree-sitter-cli and build-essential"]
@@ -494,7 +501,7 @@ flowchart TD
     end
 
     data --> system
-    s1 --> s2 --> s3 --> s4 --> s5
+    s1 --> s1b --> s2 --> s3 --> s4 --> s5
     system --> user
     u1 --> u2 --> u3 --> u4 --> u5
     user --> probes

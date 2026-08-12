@@ -138,6 +138,13 @@ provision:
   overwrite: true
 - mode: data
   file:
+    url: files/cron.d/11-update-git
+  path: /usr/local/lib/dev-vm/cron.d/11-update-git
+  owner: "root:root"
+  permissions: "755"
+  overwrite: true
+- mode: data
+  file:
     url: files/cron.d/12-update-mise
   path: /usr/local/lib/dev-vm/cron.d/12-update-mise
   owner: "root:root"
@@ -167,6 +174,9 @@ provision:
 - mode: system
   file:
     url: scripts/docker-system.sh
+- mode: system
+  file:
+    url: scripts/git-system.sh
 - mode: system
   file:
     url: scripts/zsh-system.sh
