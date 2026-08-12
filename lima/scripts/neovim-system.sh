@@ -7,9 +7,10 @@
 # both blocks are skipped and upgrades are that cron job's work — including the
 # GitHub round-trip the installer makes to resolve the latest release.
 #
-# The parser toolchain comes from apt instead: nvim-treesitter shells out to
-# tree-sitter-cli and to a C compiler to build parsers, and the tarball ships
-# neither.
+# The plugin build toolchain comes from apt instead, and the tarball ships none
+# of it: nvim-treesitter shells out to tree-sitter-cli and to a C compiler to
+# build parsers, luarocks (with luajit) builds the Lua rocks plugins depend on,
+# and cargo builds the Rust-based ones.
 set -eux
 
 export DEBIAN_FRONTEND=noninteractive
@@ -19,13 +20,13 @@ installed() {
 }
 
 missing=0
-for pkg in curl ca-certificates tree-sitter-cli build-essential; do
+for pkg in curl ca-certificates tree-sitter-cli build-essential luarocks luajit cargo; do
     installed "$pkg" || missing=1
 done
 
 if [ "$missing" = 1 ]; then
     apt-get update
-    apt-get install -y curl ca-certificates tree-sitter-cli build-essential
+    apt-get install -y curl ca-certificates tree-sitter-cli build-essential luarocks luajit cargo
 fi
 
 [ -x /usr/local/bin/nvim ] || /usr/local/lib/dev-vm/install-neovim

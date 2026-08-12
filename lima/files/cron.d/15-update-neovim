@@ -1,9 +1,10 @@
 #!/bin/sh
 # Upgrade neovim to the latest official pre-built archive release, and its
-# parser toolchain to the latest apt-published versions. Neovim is not an apt
-# package here, so no apt updater can reach it; tree-sitter-cli and
-# build-essential are, but unattended-upgrades is security-only, so it never
-# touches universe and only ever ships build-essential security fixes.
+# plugin build toolchain to the latest apt-published versions. Neovim is not an
+# apt package here, so no apt updater can reach it; tree-sitter-cli,
+# build-essential, luarocks, luajit and cargo are, but unattended-upgrades is
+# security-only, so it never touches universe and only ever ships
+# build-essential security fixes.
 #
 # Run by dev-vm-cron, never directly by cron. No apt-get update here:
 # 05-upgrade-security refreshed the lists at the top of this tick. No lock
@@ -12,6 +13,6 @@
 set -eu
 
 export DEBIAN_FRONTEND=noninteractive
-apt-get install -y --only-upgrade tree-sitter-cli build-essential
+apt-get install -y --only-upgrade tree-sitter-cli build-essential luarocks luajit cargo
 
 exec /usr/local/lib/dev-vm/install-neovim

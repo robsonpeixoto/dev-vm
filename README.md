@@ -336,10 +336,10 @@ The jobs, in the order they run:
 - **`15-update-neovim`** — neovim is not an apt package at all (official
   release tarball), so no apt updater can reach it;
   `/usr/local/lib/dev-vm/install-neovim` compares the installed version against
-  the latest release and exits when they match. The job also upgrades the
-  parser toolchain, `tree-sitter-cli` and `build-essential`: those *are* apt
-  packages, but the security-only policy never touches `universe` and only ever
-  ships `build-essential` security fixes.
+  the latest release and exits when they match. The job also upgrades the plugin
+  build toolchain — `tree-sitter-cli`, `build-essential`, `luarocks`, `luajit`
+  and `cargo`: those *are* apt packages, but the security-only policy never
+  touches `universe` and only ever ships `build-essential` security fixes.
 - **`20-prune-docker`** — weekly, see [disk hygiene](#disk-hygiene).
 
 `10-`, `11-`, `12-` and `15-` do not run their own `apt-get update`: `05-`
@@ -449,9 +449,10 @@ user), then readiness probes gate `limactl start`.
    `DOCKER_HOST`, `DEV_VM` and `DEV_VM_NAME`.
 5. **`mise-system.sh`** — installs mise from its apt repo when it is missing;
    upgrades come from `12-update-mise`.
-6. **`neovim-system.sh`** — installs `curl` plus the parser toolchain
-   `nvim-treesitter` shells out to and the tarball does not ship
-   (`tree-sitter-cli` and `build-essential`) when any of it is missing, then —
+6. **`neovim-system.sh`** — installs `curl` plus the plugin build toolchain the
+   tarball does not ship (`tree-sitter-cli` and `build-essential` for
+   `nvim-treesitter` parsers, `luarocks` with `luajit` for Lua rocks, `cargo`
+   for Rust-based plugins) when any of it is missing, then —
    only when `/usr/local/bin/nvim` is absent — runs
    `/usr/local/lib/dev-vm/install-neovim`, which unpacks the official
    pre-built archive into `/opt/nvim-linux-<arch>` (`x86_64` or `arm64`,
@@ -497,7 +498,7 @@ flowchart TD
         s1b["git-system.sh<br>install git from the git-core PPA"]
         s2["zsh-system.sh<br>install zsh, set login shell,<br>hook both profile.d files into /etc/zsh/zshenv"]
         s3["mise-system.sh<br>install mise from apt repo"]
-        s4["neovim-system.sh<br>install neovim from the release tarball<br>+ tree-sitter-cli and build-essential"]
+        s4["neovim-system.sh<br>install neovim from the release tarball<br>+ tree-sitter-cli, build-essential,<br>luarocks, luajit and cargo"]
         s5["unattended-upgrades-system.sh<br>install unattended-upgrades,<br>mask its apt-daily timers"]
     end
 
