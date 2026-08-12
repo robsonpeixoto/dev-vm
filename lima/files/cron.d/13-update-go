@@ -1,0 +1,6 @@
+#!/bin/sh
+# Installs go from the longsleep PPA
+# https://go.dev/wiki/Ubuntu
+set -eu
+export DEBIAN_FRONTEND=noninteractive
+apt-get install -y --only-upgrade golang-go

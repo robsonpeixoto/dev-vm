@@ -152,6 +152,13 @@ provision:
   overwrite: true
 - mode: data
   file:
+    url: files/cron.d/13-update-go
+  path: /usr/local/lib/dev-vm/cron.d/13-update-go
+  owner: "root:root"
+  permissions: "755"
+  overwrite: true
+- mode: data
+  file:
     url: files/cron.d/15-update-neovim
   path: /usr/local/lib/dev-vm/cron.d/15-update-neovim
   owner: "root:root"
@@ -177,6 +184,9 @@ provision:
 - mode: system
   file:
     url: scripts/git-system.sh
+- mode: system
+  file:
+    url: scripts/go-system.sh
 - mode: system
   file:
     url: scripts/zsh-system.sh
