@@ -306,11 +306,15 @@ Three updaters, split by what their repo publishes:
   passes `-o DPkg::Lock::Timeout=120`, so it waits for an unattended-upgrades
   run rather than losing the dpkg lock race.
 - **Neovim** — `/usr/local/lib/dev-vm/cron.d/15-update-neovim`, same runner,
-  same 6-hour tick. It is not an apt package at all — it comes from the
-  official release tarball — so no apt updater can reach it, and the job needs
-  no dpkg lock timeout. The job just runs
+  same 6-hour tick. Neovim is not an apt package at all — it comes from the
+  official release tarball — so no apt updater can reach it. The job runs
   `/usr/local/lib/dev-vm/install-neovim`, which compares the installed version
-  against the latest release and exits when they match.
+  against the latest release and exits when they match. The same job upgrades
+  the parser toolchain, `tree-sitter-cli` and `build-essential`: those *are*
+  apt packages, but `unattended-upgrades` is security-only, so it never touches
+  `tree-sitter-cli` in the `universe` pocket and only ever ships
+  `build-essential` security fixes. That half passes
+  `-o DPkg::Lock::Timeout=120` like the Docker job.
 
 Check the policy from inside the guest:
 
@@ -397,7 +401,9 @@ user), then readiness probes gate `limactl start`.
    sources `/etc/profile.d/docker-host.sh` from `/etc/zsh/zshenv` so
    non-login zsh (`limactl shell <name> <cmd>`) also gets `DOCKER_HOST`.
 4. **`mise-system.sh`** — installs mise from its apt repo.
-5. **`neovim-system.sh`** — installs `curl`, then runs
+5. **`neovim-system.sh`** — installs `curl` plus the parser toolchain
+   `nvim-treesitter` shells out to and the tarball does not ship
+   (`tree-sitter-cli` and `build-essential`), then runs
    `/usr/local/lib/dev-vm/install-neovim`, which unpacks the official
    pre-built archive into `/opt/nvim-linux-<arch>` (`x86_64` or `arm64`,
    picked from `uname -m`) and links it at `/usr/local/bin/nvim`. The same
@@ -434,7 +440,7 @@ flowchart TD
         s1["docker-system.sh<br>Docker packages, mask system daemon"]
         s2["zsh-system.sh<br>install zsh, set login shell,<br>hook DOCKER_HOST into /etc/zsh/zshenv"]
         s3["mise-system.sh<br>install mise from apt repo"]
-        s4["neovim-system.sh<br>install neovim from the release tarball"]
+        s4["neovim-system.sh<br>install neovim from the release tarball<br>+ tree-sitter-cli and build-essential"]
         s5["unattended-upgrades-system.sh<br>enable OS security upgrades"]
     end
 

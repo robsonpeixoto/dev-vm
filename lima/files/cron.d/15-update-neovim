@@ -1,6 +1,16 @@
 #!/bin/sh
-# Upgrade neovim to the latest official pre-built archive release. Neovim is not
-# an apt package here, so neither unattended-upgrades nor apt ever updates it.
-# Run by dev-vm-cron, never directly by cron. No apt, so no DPkg::Lock::Timeout.
+# Upgrade neovim to the latest official pre-built archive release, and its
+# parser toolchain to the latest apt-published versions. Neovim is not an apt
+# package here, so no apt updater can reach it; tree-sitter-cli lives in the
+# Ubuntu universe pocket, which unattended-upgrades does not cover either, and
+# build-essential only gets its security updates from there. Run by dev-vm-cron,
+# never directly by cron. DPkg::Lock::Timeout makes apt-get wait for
+# unattended-upgrades instead of failing on a held lock.
 set -eu
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get -o DPkg::Lock::Timeout=120 update
+apt-get -o DPkg::Lock::Timeout=120 install -y --only-upgrade \
+    tree-sitter-cli build-essential
+
 exec /usr/local/lib/dev-vm/install-neovim
