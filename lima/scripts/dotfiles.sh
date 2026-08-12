@@ -21,7 +21,7 @@ config() {
 }
 
 [ -d "$HOME/.dotfiles" ] || git clone --bare "$repo" "$HOME/.dotfiles"
- 
+
 if ! config checkout; then
     backup="$HOME/tmp/config-backup"
     # `git checkout` lists the conflicting paths indented; move them aside so

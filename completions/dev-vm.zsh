@@ -2,64 +2,64 @@
 compdef _dev_vm dev-vm devvm 2>/dev/null
 
 _dev_vm_names() {
-	local -a names
-	names=(${(f)"$($service __names 2>/dev/null)"})
-	(($#names)) && compadd -a names
+    local -a names
+    names=(${(f)"$($service __names 2>/dev/null)"})
+    (($#names)) && compadd -a names
 }
 
 _dev_vm() {
-	local curcontext="$curcontext" state line
-	local -a commands
-	commands=(
-		'create:create a dev VM'
-		'start:start a stopped dev VM'
-		'stop:stop a running dev VM'
-		'destroy:destroy a dev VM and its GitHub key'
-		'list:list dev VMs with their SSH hostname'
-		'completion:print the shell completion script'
-		'version:print the version'
-		'help:show usage'
-	)
+    local curcontext="$curcontext" state line
+    local -a commands
+    commands=(
+        'create:create a dev VM'
+        'start:start a stopped dev VM'
+        'stop:stop a running dev VM'
+        'destroy:destroy a dev VM and its GitHub key'
+        'list:list dev VMs with their SSH hostname'
+        'completion:print the shell completion script'
+        'version:print the version'
+        'help:show usage'
+    )
 
-	_arguments -C '1: :->command' '*:: :->args'
+    _arguments -C '1: :->command' '*:: :->args'
 
-	case $state in
-	command)
-		_describe -t commands 'dev-vm command' commands
-		;;
-	args)
-		case $line[1] in
-		create)
-			_arguments \
-				'-create-ssh-key=-[create and register a new key]:bool:(true false)' \
-				'-dotfiles[bare repo to check out over the guest $HOME]:repo:' \
-				'-no-dotfiles[skip dotfiles even when settings.json configures them]' \
-				'-cpus[vCPUs for the VM]:count:' \
-				'-memory[RAM in GiB]:gib:' \
-				'-disk[disk size in GiB]:gib:' \
-				'1:name:'
-			;;
-		start)
-			_arguments '1:name:_dev_vm_names'
-			;;
-		destroy)
-			_arguments \
-				'-force[skip the confirmation prompt]' \
-				'1:name:_dev_vm_names'
-			;;
-		stop)
-			_arguments \
-				'-force[kill the VM instead of shutting the guest down gracefully]' \
-				'1:name:_dev_vm_names'
-			;;
-		completion)
-			_arguments '1:shell:(bash zsh fish)'
-			;;
-		esac
-		;;
-	esac
+    case $state in
+    command)
+        _describe -t commands 'dev-vm command' commands
+        ;;
+    args)
+        case $line[1] in
+        create)
+            _arguments \
+                '-create-ssh-key=-[create and register a new key]:bool:(true false)' \
+                '-dotfiles[bare repo to check out over the guest $HOME]:repo:' \
+                '-no-dotfiles[skip dotfiles even when settings.json configures them]' \
+                '-cpus[vCPUs for the VM]:count:' \
+                '-memory[RAM in GiB]:gib:' \
+                '-disk[disk size in GiB]:gib:' \
+                '1:name:'
+            ;;
+        start)
+            _arguments '1:name:_dev_vm_names'
+            ;;
+        destroy)
+            _arguments \
+                '-force[skip the confirmation prompt]' \
+                '1:name:_dev_vm_names'
+            ;;
+        stop)
+            _arguments \
+                '-force[kill the VM instead of shutting the guest down gracefully]' \
+                '1:name:_dev_vm_names'
+            ;;
+        completion)
+            _arguments '1:shell:(bash zsh fish)'
+            ;;
+        esac
+        ;;
+    esac
 }
 
 if [ "$funcstack[1]" = "_dev_vm" ]; then
-	_dev_vm "$@"
+    _dev_vm "$@"
 fi

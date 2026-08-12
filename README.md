@@ -185,10 +185,12 @@ The zsh script needs `compinit` to have run first. Names come from the hidden
 
 `.github/workflows/ci.yml` runs `gofmt`, `go vet`, `go build` and `go test` on
 every push to `main` and every pull request, plus a parallel `shell` job over
-the provisioning shell: `shellcheck` on `lima/scripts/*.sh`, `lima/files/*.sh`,
-`lima/files/dev-vm-cron` and `lima/files/cron.d/*`, then `shfmt -d lima`, which
-takes its 4-space indent from the `[[shell]]` section of `lima/.editorconfig`.
-Reformat with `shfmt -w lima`.
+every shell file in the repo: `shellcheck` on `lima/scripts/*.sh`,
+`lima/files/*.sh`, `lima/files/dev-vm-cron`, `lima/files/install-neovim`,
+`lima/files/cron.d/*` and `completions/dev-vm.bash` (zsh and fish are dialects
+shellcheck does not support), then `shfmt -d lima completions`, which takes its
+4-space indent from the `[[shell]]` section of `.editorconfig` at the repo root.
+Reformat with `shfmt -w lima completions`.
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`, which cross-compiles
 `linux/{amd64,arm64}` and `darwin/{amd64,arm64}`, injects the tag into

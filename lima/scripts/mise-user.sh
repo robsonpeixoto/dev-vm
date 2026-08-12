@@ -11,11 +11,11 @@ set -eux
 # block, one-line or multiline.
 omz_mise_enabled() {
     awk '
-		/^[[:space:]]*plugins=\(/ { in_plugins = 1 }
-		in_plugins && /(^|[( \t])mise([ \t)]|$)/ { found = 1 }
-		in_plugins && /\)/ { in_plugins = 0 }
-		END { exit !found }
-	' ~/.zshrc 2>/dev/null
+        /^[[:space:]]*plugins=\(/ { in_plugins = 1 }
+        in_plugins && /(^|[( \t])mise([ \t)]|$)/ { found = 1 }
+        in_plugins && /\)/ { in_plugins = 0 }
+        END { exit !found }
+    ' ~/.zshrc 2>/dev/null
 }
 
 # The single quotes are the point: `$(...)` goes into ~/.zshrc verbatim for zsh

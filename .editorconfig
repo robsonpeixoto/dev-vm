@@ -1,0 +1,28 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# [[shell]] is an shfmt extension, outside the EditorConfig spec: it matches
+# every shell dialect by extension or shebang, so the extensionless cron jobs
+# under lima/files/ are covered along with the *.sh scripts and the completions.
+[[shell]]
+indent_style = space
+indent_size = 4
+
+[*.fish]
+indent_style = space
+indent_size = 4
+
+[*.go]
+indent_style = tab
+
+[*.{yaml,yml,json}]
+indent_style = space
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false

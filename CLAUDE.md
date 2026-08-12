@@ -248,10 +248,13 @@ change in this repo.
 
 - Put executable logic in `lima/scripts/*.sh`, reference it via `file.url`.
 - `#!/bin/sh` + `set -eux` (or `set -eu` when output would leak secrets).
-- Indent with 4 spaces, not tabs, and run `shfmt -w lima` before committing.
-  The width comes from `lima/.editorconfig`, whose `[[shell]]` section is an
-  shfmt extension that matches by shebang too, so the extensionless cron jobs
-  are covered without listing them. CI's `shell` job runs `shfmt -d lima`.
+- Indent with 4 spaces, not tabs, and run `shfmt -w lima completions` before
+  committing. The width comes from the repo-root `.editorconfig` (`root = true`,
+  so it covers every directory), whose `[[shell]]` section is an shfmt extension
+  that matches by shebang too, so the extensionless cron jobs are covered
+  without listing them. CI's `shell` job runs `shfmt -d lima completions` plus
+  `shellcheck`, including `-s bash completions/dev-vm.bash`; the zsh and fish
+  completions are dialects shellcheck cannot read.
 - Idempotent, always — the script reruns on every boot.
 - Root work in `system`, per-user/systemd work in `user`, never mix.
 - No `-o DPkg::Lock::Timeout` anywhere, provision script or cron job. apt
