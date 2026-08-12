@@ -21,8 +21,6 @@ config() {
 }
 
 [ -d "$HOME/.dotfiles" ] || git clone --bare "$repo" "$HOME/.dotfiles"
-
-git --git-dir="${HOME}/.dotfiles/" --work-tree="${HOME}" branch --set-upstream-to=origin/main main
  
 if ! config checkout; then
     backup="$HOME/tmp/config-backup"
@@ -54,3 +52,5 @@ if [ -f "$stanza" ]; then
         chmod 600 "$conf"
     fi
 fi
+
+git --git-dir="${HOME}/.dotfiles/" --work-tree="${HOME}" branch --set-upstream-to=origin/main main
