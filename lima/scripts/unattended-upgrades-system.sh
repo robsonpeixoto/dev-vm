@@ -1,11 +1,11 @@
 #!/bin/sh
 # Turns on unattended security upgrades for the whole OS. Runs as root on
 # every boot, so it must be idempotent: the install is skipped once the
-# package is there, and the systemd units tolerate being enabled twice.
+# package is there, and masking an already-masked unit is a no-op.
 #
-# The policy itself lives in the two `mode: data` files applied before this
-# script: /etc/apt/apt.conf.d/20auto-upgrades (run the periodic jobs at all)
-# and 52dev-vm-unattended-upgrades (which origins, reboot policy).
+# The policy itself lives in the `mode: data` file applied before this script,
+# /etc/apt/apt.conf.d/52dev-vm-unattended-upgrades (which origins, reboot
+# policy).
 set -eux
 
 export DEBIAN_FRONTEND=noninteractive
@@ -16,13 +16,16 @@ if ! dpkg-query -W -f='${db:Status-Status}' unattended-upgrades 2>/dev/null |
     apt-get install -y unattended-upgrades
 fi
 
-# apt-daily fetches the lists, apt-daily-upgrade applies the upgrade; the
-# service is what the timer starts. Ubuntu ships all three enabled, but the
-# VM should not depend on that staying true.
-systemctl enable --now apt-daily.timer apt-daily-upgrade.timer
-systemctl enable unattended-upgrades.service
+# The packaged timers are a second apt scheduler: apt-daily fires anywhere in a
+# 12-hour window, apt-daily-upgrade in a 1-hour one, and Persistent=true makes a
+# missed run fire right after a VM start, next to boot provisioning. Masked, not
+# just disabled, so a package upgrade cannot enable them again — the runner in
+# /usr/local/sbin/dev-vm-cron calls unattended-upgrade itself from
+# cron.d/05-upgrade-security, which keeps every apt run under one lock.
+# A masked unit cannot be started even while it is still enabled, so mask
+# --now both stops the timers and outranks any later enable.
+systemctl mask --now apt-daily.timer apt-daily-upgrade.timer
 
-# The Docker updater in /usr/local/lib/dev-vm/cron.d/10-update-docker keeps
-# running: Docker's apt repo has no security suite for the Allowed-Origins
-# above to match. It already passes -o DPkg::Lock::Timeout=120, so it waits
-# for an unattended-upgrades run instead of failing on the held lock.
+# Not the timers' service: this one runs at shutdown to finish an upgrade that
+# is already in flight, so it never starts one behind the runner's back.
+systemctl enable unattended-upgrades.service

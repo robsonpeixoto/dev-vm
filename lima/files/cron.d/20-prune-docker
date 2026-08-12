@@ -2,7 +2,7 @@
 # Reclaim disk from Docker: stopped containers, unused images, unused networks
 # and build cache untouched for a week. Volumes are left alone (`prune -a` skips
 # them without --volumes) — images are re-pullable, volume data is not. Run by
-# dev-vm-cron, never directly by cron. No apt here, so no DPkg::Lock::Timeout.
+# dev-vm-cron, never directly by cron.
 #
 # dev-vm-cron ticks every 6 hours and this prune is weekly, so the job stamps
 # itself and returns early until the stamp is a week old.

@@ -75,14 +75,8 @@ provision:
   permissions: "644"
   overwrite: true
 # Unattended security upgrades for the whole OS; the script below installs the
-# package and enables the timers that read these.
-- mode: data
-  file:
-    url: files/apt/20auto-upgrades
-  path: /etc/apt/apt.conf.d/20auto-upgrades
-  owner: "root:root"
-  permissions: "644"
-  overwrite: true
+# package and masks its timers, and cron.d/05-upgrade-security runs the binary
+# under this policy.
 - mode: data
   file:
     url: files/apt/52dev-vm-unattended-upgrades
@@ -105,6 +99,13 @@ provision:
   file:
     url: files/install-neovim
   path: /usr/local/lib/dev-vm/install-neovim
+  owner: "root:root"
+  permissions: "755"
+  overwrite: true
+- mode: data
+  file:
+    url: files/cron.d/05-upgrade-security
+  path: /usr/local/lib/dev-vm/cron.d/05-upgrade-security
   owner: "root:root"
   permissions: "755"
   overwrite: true

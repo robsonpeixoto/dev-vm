@@ -249,25 +249,39 @@ change in this repo.
   are covered without listing them. CI's `shell` job runs `shfmt -d lima`.
 - Idempotent, always — the script reruns on every boot.
 - Root work in `system`, per-user/systemd work in `user`, never mix.
-- No `DPkg::Lock::Timeout` in provision scripts: boot provisioning owns the
-  dpkg lock, so waiting there would only hide a real conflict. The timeout
-  belongs to the cron jobs, which run against a live system next to
-  unattended-upgrades.
+- No `-o DPkg::Lock::Timeout` anywhere, provision script or cron job. apt
+  already defaults `Dpkg::Lock::Timeout` to 120 s whenever stdin is not a tty
+  (`BinarySpecificConfiguration` in apt's `private-cmndline.cc`, since apt
+  2.0), which covers every non-interactive run, and the flag never applied to
+  `apt-get update` in the first place: the lists lock goes through
+  `pkgAcquire::GetLock` → `GetLock` (a non-blocking `F_SETLK`), not
+  `GetLockMaybeWait`. Contention is solved by having one scheduler, not by
+  passing the option — see the `apt-daily` note below.
 - Secrets and config files go through `mode: data` with explicit `owner` and
   `permissions`, not `echo` or a heredoc inside a script. Static payloads live
   in `lima/files/`, referenced with `file.url` like the scripts.
-- OS security patching is `unattended-upgrades`, not a cron job:
-  `scripts/unattended-upgrades-system.sh` installs it and enables the
-  `apt-daily` timers, and the policy lives in two `mode: data` files under
-  `lima/files/apt/`. It is scoped to the security pockets, so anything that
-  needs a non-security upgrade (Docker) keeps its own job in `cron.d`.
+- `dev-vm-cron` is the guest's only apt scheduler, and everything that drives
+  apt goes through it. `scripts/unattended-upgrades-system.sh` installs
+  `unattended-upgrades` but **masks** `apt-daily.timer` and
+  `apt-daily-upgrade.timer` (they fire in a randomized window and, being
+  `Persistent=true`, catch up right after a VM start, next to boot
+  provisioning); `cron.d/05-upgrade-security` calls `unattended-upgrade`
+  itself, under the policy in the `mode: data` file
+  `lima/files/apt/52dev-vm-unattended-upgrades`. That policy is scoped to the
+  security pockets, so anything needing a non-security upgrade (Docker, the
+  neovim toolchain) keeps its own job in `cron.d`. Never re-enable those
+  timers: a second scheduler is what makes lock races possible.
+- `05-upgrade-security` runs the tick's single `apt-get update` (with a bounded
+  retry, since the lists lock has no built-in wait), so later jobs install from
+  fresh lists and must not run their own.
+- `dev-vm-cron` exits 0 without running anything while `/run/lima-boot-done` is
+  absent: boot provisioning is the one apt user its `flock` cannot reach.
 - Recurring guest maintenance is a job file, not a new cron line: put an
   executable script in `lima/files/cron.d/` and a `mode: data` entry mapping it
   to `/usr/local/lib/dev-vm/cron.d/<NN>-<name>` (permissions `755`).
   `/etc/cron.d/dev-vm` holds a single entry, `/usr/local/sbin/dev-vm-cron`,
   which runs that directory in name order under `flock` — jobs run one at a
-  time and overlapping ticks queue instead of racing. Those jobs run against a
-  live system, so every `apt-get` in them takes `-o DPkg::Lock::Timeout=120`.
+  time and overlapping ticks queue instead of racing.
   A job that must run less often than the 6-hour tick throttles itself with a
   stamp file (`20-prune-docker` uses `/var/lib/dev-vm/docker-prune.stamp` for
   its weekly schedule) rather than taking a second cron line.

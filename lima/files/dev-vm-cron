@@ -4,10 +4,21 @@
 # and a second dpkg client only loses the lock race. flock serializes runs
 # that overlap (a slow job still going when the next tick fires) instead of
 # letting them pile up.
+#
+# This is the only apt scheduler in the VM: unattended-upgrades' own
+# apt-daily timers are masked and 05-upgrade-security calls the binary from
+# here instead, so this lock covers every scheduled apt run and no job needs
+# -o DPkg::Lock::Timeout.
 set -eu
 
 jobs=/usr/local/lib/dev-vm/cron.d
 lock=/run/lock/dev-vm-cron
+
+# Boot provisioning drives apt too, and it is the one apt user this lock cannot
+# reach. Lima writes /run/lima-boot-done when provisioning finishes, so a tick
+# landing mid-boot is skipped rather than raced; the next one is 6 hours out and
+# provisioning already installed everything these jobs would.
+[ -e /run/lima-boot-done ] || exit 0
 
 # Re-exec under flock once; the guard keeps the second run from looping.
 if [ "${DEV_VM_CRON_LOCK:-}" != 1 ]; then

@@ -1,0 +1,31 @@
+#!/bin/sh
+# Apply the Ubuntu security upgrades, under the policy in
+# /etc/apt/apt.conf.d/52dev-vm-unattended-upgrades. unattended-upgrades ships
+# systemd timers for this, but apt-daily.timer and apt-daily-upgrade.timer are a
+# second apt scheduler with a randomized window, so they are masked and this job
+# calls the binary instead: every apt run in the VM then happens inside
+# dev-vm-cron's flock, one at a time, and no apt-get needs a lock timeout.
+#
+# First in name order, so the package lists it refreshes are the ones the later
+# jobs install from. apt-get update is also the one apt call with no built-in
+# lock wait: its /var/lib/apt/lists/lock is a non-blocking F_SETLK, so a human
+# running apt inside the VM makes it fail outright instead of waiting. Hence the
+# retry here and nowhere else.
+set -eu
+
+export DEBIAN_FRONTEND=noninteractive
+
+tries=0
+until apt-get update; do
+    tries=$((tries + 1))
+    if [ "$tries" -ge 3 ]; then
+        echo "05-upgrade-security: apt-get update failed $tries times" >&2
+        exit 1
+    fi
+    sleep 60
+done
+
+unattended-upgrade -v
+
+# The masked apt-daily.service used to do this from APT::Periodic.
+apt-get autoclean -y

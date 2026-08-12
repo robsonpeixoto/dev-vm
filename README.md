@@ -290,37 +290,47 @@ Every new LTS has to pass all three on that fresh create:
 
 ## Staying patched
 
-Three updaters, split by what their repo publishes:
+One scheduler, `dev-vm-cron`, every 6 hours. It runs
+`/usr/local/lib/dev-vm/cron.d/*` in name order under `flock`, so the whole
+VM's apt traffic is serialized and no job needs a dpkg lock timeout.
+`unattended-upgrades-system.sh` **masks** `apt-daily.timer` and
+`apt-daily-upgrade.timer` to keep it that way: they fire in a randomized window
+(12 hours wide for `apt-daily`) and `Persistent=true` makes a missed run fire
+right after a VM start, next to boot provisioning — a second apt scheduler is
+the whole reason lock races happen.
 
-- **Ubuntu** — `unattended-upgrades`, enabled by
-  `unattended-upgrades-system.sh` and driven by the `apt-daily` /
-  `apt-daily-upgrade` timers. It applies the **security pockets only**
-  (`-security`, plus the two ESM ones), never reboots on its own, and cleans
-  up unused kernels and dependencies. A pending kernel takes effect on the
-  next VM restart.
-- **Docker** — `/usr/local/lib/dev-vm/cron.d/10-update-docker`, every 6 hours
-  through `dev-vm-cron`. It stays separate because Docker's apt repo
-  publishes no security suite for `Unattended-Upgrade::Allowed-Origins` to
-  match; folding it in would mean allowing the whole Docker origin, which is
-  a feature-version upgrade, not a security one. It runs under `flock` and
-  passes `-o DPkg::Lock::Timeout=120`, so it waits for an unattended-upgrades
-  run rather than losing the dpkg lock race.
-- **Neovim** — `/usr/local/lib/dev-vm/cron.d/15-update-neovim`, same runner,
-  same 6-hour tick. Neovim is not an apt package at all — it comes from the
-  official release tarball — so no apt updater can reach it. The job runs
-  `/usr/local/lib/dev-vm/install-neovim`, which compares the installed version
-  against the latest release and exits when they match. The same job upgrades
-  the parser toolchain, `tree-sitter-cli` and `build-essential`: those *are*
-  apt packages, but `unattended-upgrades` is security-only, so it never touches
-  `tree-sitter-cli` in the `universe` pocket and only ever ships
-  `build-essential` security fixes. That half passes
-  `-o DPkg::Lock::Timeout=120` like the Docker job.
+The jobs, in the order they run:
+
+- **`05-upgrade-security`** — `apt-get update`, then `unattended-upgrade` under
+  the policy in `/etc/apt/apt.conf.d/52dev-vm-unattended-upgrades`: **security
+  pockets only** (`-security`, plus the two ESM ones), never reboots on its own,
+  unused kernels and dependencies cleaned up. A pending kernel takes effect on
+  the next VM restart. Its `apt-get update` is the only apt call that retries —
+  the lists lock is a non-blocking `F_SETLK`, so it has no built-in wait,
+  unlike the dpkg lock (`Dpkg::Lock::Timeout`, which apt already defaults to
+  120 s whenever stdin is not a tty).
+- **`10-update-docker`** — Docker's apt repo publishes no security suite for
+  `Unattended-Upgrade::Allowed-Origins` to match; folding it in would mean
+  allowing the whole Docker origin, which is a feature-version upgrade, not a
+  security one.
+- **`15-update-neovim`** — neovim is not an apt package at all (official
+  release tarball), so no apt updater can reach it;
+  `/usr/local/lib/dev-vm/install-neovim` compares the installed version against
+  the latest release and exits when they match. The job also upgrades the
+  parser toolchain, `tree-sitter-cli` and `build-essential`: those *are* apt
+  packages, but the security-only policy never touches `universe` and only ever
+  ships `build-essential` security fixes.
+- **`20-prune-docker`** — weekly, see [disk hygiene](#disk-hygiene).
+
+`10-` and `15-` do not run their own `apt-get update`: `05-` refreshed the
+lists seconds earlier in the same tick.
 
 Check the policy from inside the guest:
 
 ```sh
 limactl shell <name> sudo unattended-upgrade --dry-run --debug
-limactl shell <name> systemctl list-timers apt-daily\*
+limactl shell <name> systemctl is-enabled apt-daily.timer apt-daily-upgrade.timer
+limactl shell <name> sudo dev-vm-cron
 ```
 
 ## Disk hygiene
@@ -386,14 +396,16 @@ user), then readiness probes gate `limactl start`.
    (`/etc/profile.d/docker-host.sh`), the unattended-upgrades policy in
    `/etc/apt/apt.conf.d/`, and the maintenance cron: the runner
    `/usr/local/sbin/dev-vm-cron`, its jobs
-   `/usr/local/lib/dev-vm/cron.d/10-update-docker`, `15-update-neovim` and
-   `20-prune-docker`, the neovim installer those jobs and
+   `/usr/local/lib/dev-vm/cron.d/05-upgrade-security`, `10-update-docker`,
+   `15-update-neovim` and `20-prune-docker`, the neovim installer those jobs and
    `neovim-system.sh` share (`/usr/local/lib/dev-vm/install-neovim`), and
    `/etc/cron.d/dev-vm`,
    whose single entry runs the runner every 6 hours (not at boot — provisioning
    installs the latest Docker packages on each boot anyway). The runner
    executes `/usr/local/lib/dev-vm/cron.d/*` in name order under `flock`, so
-   jobs never run in parallel or fight for the dpkg lock.
+   jobs never run in parallel or fight for the dpkg lock, and it skips a tick
+   entirely while `/run/lima-boot-done` is missing, i.e. while boot
+   provisioning still owns apt.
 2. **`docker-system.sh`** — installs Docker Engine from Docker's apt repo
    (with `docker-ce-rootless-extras`), then masks the system-wide
    `docker`/`containerd` units so only the rootless daemon exists.
@@ -410,8 +422,9 @@ user), then readiness probes gate `limactl start`.
    installer backs the `15-update-neovim` cron job, so boot and upgrade share
    one code path.
 6. **`unattended-upgrades-system.sh`** — installs `unattended-upgrades` and
-   enables the `apt-daily` timers, so Ubuntu security updates (kernel,
-   openssl, openssh) land without anyone asking. Policy lives in
+   masks its `apt-daily` timers, leaving `dev-vm-cron` the only apt scheduler;
+   `cron.d/05-upgrade-security` calls the binary, so Ubuntu security updates
+   (kernel, openssl, openssh) land without anyone asking. Policy lives in
    `/etc/apt/apt.conf.d/52dev-vm-unattended-upgrades`: security pockets only,
    no automatic reboot, unused kernels and dependencies removed.
 7. **`ssh-known-hosts.sh`** — rewrites `~/.ssh/known_hosts` from live
@@ -431,8 +444,8 @@ flowchart TD
     subgraph data["data files (copied by root)"]
         d1["~/.ssh/id_ed25519 + config + lima-github.conf<br>GitHub SSH access"]
         d2["/etc/profile.d/docker-host.sh<br>DOCKER_HOST for libraries"]
-        d3["apt.conf.d/20auto-upgrades + 52dev-vm-unattended-upgrades<br>security-only upgrade policy"]
-        d4["dev-vm-cron + cron.d/10-update-docker<br>+ cron.d/15-update-neovim + cron.d/20-prune-docker<br>sequential jobs every 6h"]
+        d3["apt.conf.d/52dev-vm-unattended-upgrades<br>security-only upgrade policy"]
+        d4["dev-vm-cron + cron.d/05-upgrade-security<br>+ cron.d/10-update-docker + cron.d/15-update-neovim<br>+ cron.d/20-prune-docker<br>sequential jobs every 6h"]
         d5["install-neovim<br>shared neovim tarball installer"]
     end
 
@@ -441,7 +454,7 @@ flowchart TD
         s2["zsh-system.sh<br>install zsh, set login shell,<br>hook DOCKER_HOST into /etc/zsh/zshenv"]
         s3["mise-system.sh<br>install mise from apt repo"]
         s4["neovim-system.sh<br>install neovim from the release tarball<br>+ tree-sitter-cli and build-essential"]
-        s5["unattended-upgrades-system.sh<br>enable OS security upgrades"]
+        s5["unattended-upgrades-system.sh<br>install unattended-upgrades,<br>mask its apt-daily timers"]
     end
 
     subgraph user["user scripts (login user)"]
