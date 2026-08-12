@@ -183,14 +183,26 @@ The zsh script needs `compinit` to have run first. Names come from the hidden
 
 ## Releasing
 
-`.github/workflows/ci.yml` runs `gofmt`, `go vet`, `go build` and `go test` on
-every push to `main` and every pull request, plus a parallel `shell` job over
-every shell file in the repo: `shellcheck` on `lima/scripts/*.sh`,
-`lima/files/*.sh`, `lima/files/dev-vm-cron`, `lima/files/install-neovim`,
-`lima/files/cron.d/*` and `completions/dev-vm.bash` (zsh and fish are dialects
-shellcheck does not support), then `shfmt -d lima completions`, which takes its
-4-space indent from the `[[shell]]` section of `.editorconfig` at the repo root.
-Reformat with `shfmt -w lima completions`.
+`.github/workflows/ci.yml` runs `make check-format-go`, `go vet`, `go build` and
+`go test` on every push to `main` and every pull request, plus a parallel
+`shell` job over every shell file in the repo: `shellcheck` on
+`lima/scripts/*.sh`, `lima/files/*.sh`, `lima/files/dev-vm-cron`,
+`lima/files/install-neovim`, `lima/files/cron.d/*` and `completions/dev-vm.bash`
+(zsh and fish are dialects shellcheck does not support), then
+`make check-format-shell`.
+
+Code style lives in the `Makefile`, so CI and a local run cannot drift:
+
+```sh
+make format         # gofmt -w, shfmt -w
+make check-format   # the same, diff-only; what CI runs
+```
+
+`format-go`/`format-shell` and `check-format-go`/`check-format-shell` are the
+halves, one per CI job. `SHELL_DIRS` names the directories shfmt walks (`lima`
+and `completions`); it finds shell files there by extension or shebang, so a new
+script is covered without touching the `Makefile`, and takes its 4-space indent
+from the `[[shell]]` section of `.editorconfig` at the repo root.
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`, which cross-compiles
 `linux/{amd64,arm64}` and `darwin/{amd64,arm64}`, injects the tag into

@@ -248,13 +248,17 @@ change in this repo.
 
 - Put executable logic in `lima/scripts/*.sh`, reference it via `file.url`.
 - `#!/bin/sh` + `set -eux` (or `set -eu` when output would leak secrets).
-- Indent with 4 spaces, not tabs, and run `shfmt -w lima completions` before
-  committing. The width comes from the repo-root `.editorconfig` (`root = true`,
-  so it covers every directory), whose `[[shell]]` section is an shfmt extension
-  that matches by shebang too, so the extensionless cron jobs are covered
-  without listing them. CI's `shell` job runs `shfmt -d lima completions` plus
-  `shellcheck`, including `-s bash completions/dev-vm.bash`; the zsh and fish
-  completions are dialects shellcheck cannot read.
+- Indent with 4 spaces, not tabs, and run `make format` before committing —
+  never a bare `shfmt`/`gofmt`, so the flags stay in one place. The `Makefile`
+  holds `format`/`check-format` and their `-go`/`-shell` halves; `SHELL_DIRS`
+  (`lima completions`) is the list shfmt walks, finding shell files by extension
+  or shebang, so the extensionless cron jobs need no listing. The width comes
+  from the repo-root `.editorconfig` (`root = true`, so it covers every
+  directory) and its `[[shell]]` section, an shfmt extension that matches by
+  shebang too. CI's `check` job runs `make check-format-go`, its `shell` job
+  `make check-format-shell` plus `shellcheck`, including
+  `-s bash completions/dev-vm.bash`; the zsh and fish completions are dialects
+  shellcheck cannot read.
 - Idempotent, always — the script reruns on every boot.
 - Root work in `system`, per-user/systemd work in `user`, never mix.
 - No `-o DPkg::Lock::Timeout` anywhere, provision script or cron job. apt

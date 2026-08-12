@@ -16,7 +16,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - run: make check-format-go
       - run: go vet ./...
       - run: go build ./...
       - run: go test ./...
@@ -35,6 +35,6 @@ jobs:
       # dev-vm.fish are dialects shellcheck does not support.
       - run: shellcheck -s bash completions/dev-vm.bash
       # No printer flags, so shfmt takes the indent from .editorconfig. It walks
-      # the given directories and finds shell files by extension or shebang, so
-      # a new script is covered without editing this file.
-      - run: go run mvdan.cc/sh/v3/cmd/shfmt@latest -d lima completions
+      # the directories in the Makefile's SHELL_DIRS and finds shell files by
+      # extension or shebang, so a new script needs no change here.
+      - run: make check-format-shell

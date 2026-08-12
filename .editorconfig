@@ -20,6 +20,10 @@ indent_size = 4
 [*.go]
 indent_style = tab
 
+# Recipes must start with a tab.
+[Makefile]
+indent_style = tab
+
 [*.{yaml,yml,json}]
 indent_style = space
 indent_size = 2
