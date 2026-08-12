@@ -10,8 +10,9 @@ set -eux
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 # ca-certificates + curl fetch the repo key; uidmap (newuidmap/newgidmap) and
-# dbus-user-session are rootless Docker's own prerequisites.
-apt-get install -y ca-certificates curl uidmap dbus-user-session
+# dbus-user-session are rootless Docker's own prerequisites; passt provides
+# pasta, the network driver selected by the docker.service override file.
+apt-get install -y ca-certificates curl uidmap dbus-user-session passt
 
 # Docker's official apt repo (see https://docs.docker.com/engine/install/ubuntu/).
 install -m 0755 -d /etc/apt/keyrings

@@ -394,7 +394,9 @@ user), then readiness probes gate `limactl start`.
 
 1. **Data files** — GitHub key + ssh config, the global `DOCKER_HOST` snippet
    (`/etc/profile.d/docker-host.sh`), the `DEV_VM`/`DEV_VM_NAME` markers
-   (`/etc/profile.d/dev-vm.sh`), the unattended-upgrades policy in
+   (`/etc/profile.d/dev-vm.sh`), the rootless-Docker pasta override
+   (`~/.config/systemd/user/docker.service.d/override.conf`), the
+   unattended-upgrades policy in
    `/etc/apt/apt.conf.d/`, and the maintenance cron: the runner
    `/usr/local/sbin/dev-vm-cron`, its jobs
    `/usr/local/lib/dev-vm/cron.d/05-upgrade-security`, `10-update-docker`,
@@ -437,7 +439,11 @@ user), then readiness probes gate `limactl start`.
    the GitHub ssh stanza back onto `~/.ssh/config`. No-op without
    `DOTFILES_REPO`.
 10. **`docker-user.sh`** — `dockerd-rootless-setuptool.sh install`, selects the
-   `rootless` context.
+   `rootless` context. The daemon comes up with pasta networking instead of
+   slirp4netns: the `mode: data` override file sets
+   `DOCKERD_ROOTLESS_ROOTLESSKIT_NET=pasta` (with its `implicit` port driver)
+   for faster container egress. Still experimental upstream — drop the override
+   entry from `lima/dev-vm.yaml` and recreate to fall back to slirp4netns.
 11. **`mise-user.sh`** — activates mise in `~/.zshrc` (unless the oh-my-zsh
    mise plugin already does), `mise trust --all`, `mise install`.
 
@@ -463,7 +469,7 @@ flowchart TD
         u1["ssh-known-hosts.sh<br>pin github.com host keys"]
         u2["omz-user.sh<br>install oh-my-zsh"]
         u3["dotfiles.sh<br>check out dotfiles over $HOME"]
-        u4["docker-user.sh<br>set up rootless Docker daemon"]
+        u4["docker-user.sh<br>set up rootless Docker daemon<br>(pasta networking)"]
         u5["mise-user.sh<br>trust config, install tools"]
     end
 

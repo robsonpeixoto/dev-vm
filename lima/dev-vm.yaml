@@ -82,6 +82,17 @@ provision:
   owner: "root:root"
   permissions: "644"
   overwrite: true
+# Rootless Docker networking: pasta instead of the slirp4netns default, for
+# faster container egress. Lands before the user scripts run, so
+# dockerd-rootless-setuptool.sh (docker-user.sh) starts the daemon with it on
+# the first boot already.
+- mode: data
+  file:
+    url: files/docker-rootless-override.conf
+  path: "{{.Home}}/.config/systemd/user/docker.service.d/override.conf"
+  owner: "{{.User}}"
+  permissions: "644"
+  overwrite: true
 # Unattended security upgrades for the whole OS; the script below installs the
 # package and masks its timers, and cron.d/05-upgrade-security runs the binary
 # under this policy.
