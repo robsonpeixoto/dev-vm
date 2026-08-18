@@ -213,6 +213,9 @@ into it. The rules behind that:
   `limactl shell <name> ip -4 -json addr show lima0`, once per running VM, in
   parallel, with a 5 s deadline. A VM that is stopped or slow to answer shows
   `-` rather than failing the command.
+- **From inside the guest**, `my-ip` prints the same address
+  (`/usr/local/bin/my-ip`): it reads `lima0`, falling back to the interface
+  carrying the default route.
 - It is a DHCP lease, so it can change when the VM reboots. Read it from
   `go run . list` or `go run . status <name>` instead of hardcoding it.
 
@@ -494,8 +497,9 @@ user), then readiness probes gate `limactl start`.
    `/usr/local/lib/dev-vm/cron.d/05-upgrade-security`, `10-update-docker`,
    `11-update-git`, `12-update-mise`, `15-update-neovim` and `20-prune-docker`,
    the neovim installer those jobs and
-   `neovim-system.sh` share (`/usr/local/lib/dev-vm/install-neovim`), and
-   `/etc/cron.d/dev-vm`,
+   `neovim-system.sh` share (`/usr/local/lib/dev-vm/install-neovim`),
+   the `my-ip` helper (`/usr/local/bin/my-ip`, prints the guest IP from inside
+   the VM), and `/etc/cron.d/dev-vm`,
    whose single entry runs the runner every 6 hours (not at boot — the runner
    exits until `/run/lima-boot-done` appears, so an `@reboot` line would be a
    no-op). The runner

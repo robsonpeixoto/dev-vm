@@ -1,0 +1,23 @@
+#!/bin/sh
+# Print the VM IPv4 address on its vzNAT interface (lima0), falling back to
+# whichever interface carries the default route.
+set -eu
+
+iface=lima0
+if ! ip link show "$iface" >/dev/null 2>&1; then
+    iface=$(ip -4 route show default | awk '{print $5; exit}')
+fi
+
+[ -n "$iface" ] || {
+    echo "my-ip: no network interface found" >&2
+    exit 1
+}
+
+ip=$(ip -4 -o addr show dev "$iface" scope global | awk '{split($4, a, "/"); print a[1]; exit}')
+
+[ -n "$ip" ] || {
+    echo "my-ip: no IPv4 address on $iface" >&2
+    exit 1
+}
+
+echo "$ip"

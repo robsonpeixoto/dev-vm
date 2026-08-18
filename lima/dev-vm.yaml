@@ -126,6 +126,13 @@ provision:
   overwrite: true
 - mode: data
   file:
+    url: files/my-ip
+  path: /usr/local/bin/my-ip
+  owner: "root:root"
+  permissions: "755"
+  overwrite: true
+- mode: data
+  file:
     url: files/install-neovim
   path: /usr/local/lib/dev-vm/install-neovim
   owner: "root:root"
