@@ -45,6 +45,15 @@ type resources struct {
 
 var defaultResources = resources{cpus: 2, memory: 2, disk: 50}
 
+// createOptions is everything needed to build a VM, shared by create and
+// recreate.
+type createOptions struct {
+	name         string
+	dotfiles     string
+	res          resources
+	createSSHKey bool
+}
+
 func cmdCreate(argv []string) {
 	fs := flag.NewFlagSet("create", flag.ExitOnError)
 	fs.Usage = func() {
@@ -74,19 +83,31 @@ func cmdCreate(argv []string) {
 		die("VM %q already exists; run: devvm destroy %s", name, name)
 	}
 
-	key, pub := keyPaths(name)
+	createVM(createOptions{
+		name:         name,
+		dotfiles:     dotfiles,
+		res:          res,
+		createSSHKey: createSSHKey,
+	})
+}
 
-	if !createSSHKey {
+// createVM registers the GitHub key, boots the VM from the embedded template
+// and records it in the state file. The caller decides whether an instance of
+// that name may already exist.
+func createVM(opt createOptions) {
+	key, pub := keyPaths(opt.name)
+
+	if !opt.createSSHKey {
 		if !fileExists(key) || !fileExists(pub) {
 			die("no key at %s; rerun without -create-ssh-key=false", key)
 		}
 		fmt.Printf("reusing key %s\n", key)
 	} else {
 		checkScopes()
-		title := keyTitle(name)
+		title := keyTitle(opt.name)
 		createKey(title, key, pub)
-		keyID := registerKey(name, title, pub)
-		putVM(name, map[string]any{
+		keyID := registerKey(opt.name, title, pub)
+		putVM(opt.name, map[string]any{
 			"github_key_id":    keyID,
 			"github_key_title": title,
 			"private_key":      key,
@@ -94,19 +115,20 @@ func cmdCreate(argv []string) {
 		})
 	}
 
-	if dotfiles != "" {
-		fmt.Printf("installing dotfiles from %s\n", dotfiles)
+	if opt.dotfiles != "" {
+		fmt.Printf("installing dotfiles from %s\n", opt.dotfiles)
 	}
-	fmt.Printf("VM size %d vCPU, %dGiB RAM, %dGiB disk\n", res.cpus, res.memory, res.disk)
-	startVM(name, dotfiles, res, key)
-	putVM(name, map[string]any{
+	fmt.Printf("VM size %d vCPU, %dGiB RAM, %dGiB disk\n",
+		opt.res.cpus, opt.res.memory, opt.res.disk)
+	startVM(opt.name, opt.dotfiles, opt.res, key)
+	putVM(opt.name, map[string]any{
 		"template":    "embedded:lima/dev-vm.yaml",
 		"started_at":  now(),
 		"private_key": key,
 		"public_key":  pub,
-		"dotfiles":    dotfiles,
+		"dotfiles":    opt.dotfiles,
 	})
-	if inst, ok := limaInstances()[name]; ok {
+	if inst, ok := limaInstances()[opt.name]; ok {
 		if ip := guestIP(inst); ip != "" {
 			fmt.Printf("IP %s (no port forwards; reach guest services here)\n", ip)
 		}
