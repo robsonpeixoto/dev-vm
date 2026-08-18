@@ -15,7 +15,8 @@ _dev_vm() {
         'start:start a stopped dev VM'
         'stop:stop a running dev VM'
         'destroy:destroy a dev VM and its GitHub key'
-        'list:list dev VMs with their SSH hostname'
+        'list:list dev VMs with their IP and SSH hostname'
+        'status:show one dev VM in detail'
         'completion:print the shell completion script'
         'version:print the version'
         'help:show usage'
@@ -39,7 +40,7 @@ _dev_vm() {
                 '-disk[disk size in GiB]:gib:' \
                 '1:name:'
             ;;
-        start)
+        start | status)
             _arguments '1:name:_dev_vm_names'
             ;;
         destroy)

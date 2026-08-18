@@ -18,6 +18,7 @@ Usage:
   dev-vm stop [name] [-force]
   dev-vm destroy [name] [-force]
   dev-vm list
+  dev-vm status [name]
   dev-vm completion <bash|zsh|fish>
   dev-vm version
 
@@ -40,6 +41,8 @@ func main() {
 		cmdDestroy(os.Args[2:])
 	case "list":
 		cmdList(os.Args[2:])
+	case "status":
+		cmdStatus(os.Args[2:])
 	case "completion":
 		cmdCompletion(os.Args[2:])
 	case "__names":

@@ -35,7 +35,7 @@ func TestCompletionCoversCommands(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, cmd := range []string{"create", "start", "stop", "destroy", "list"} {
+			for _, cmd := range []string{"create", "start", "stop", "destroy", "list", "status"} {
 				if !strings.Contains(string(script), cmd) {
 					t.Errorf("dev-vm.%s does not mention %q", shell, cmd)
 				}

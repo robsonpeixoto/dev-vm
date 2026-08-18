@@ -106,6 +106,11 @@ func cmdCreate(argv []string) {
 		"public_key":  pub,
 		"dotfiles":    dotfiles,
 	})
+	if inst, ok := limaInstances()[name]; ok {
+		if ip := guestIP(inst); ip != "" {
+			fmt.Printf("IP %s (no port forwards; reach guest services here)\n", ip)
+		}
+	}
 	fmt.Printf("state %s\n", stateFile)
 }
 

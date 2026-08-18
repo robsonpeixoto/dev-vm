@@ -2,7 +2,7 @@ function __dev_vm_names
     command dev-vm __names 2>/dev/null
 end
 
-set -l dev_vm_commands create start stop destroy list completion version help
+set -l dev_vm_commands create start stop destroy list status completion version help
 
 complete -c dev-vm -f
 
@@ -10,7 +10,8 @@ complete -c dev-vm -n "not __fish_seen_subcommand_from $dev_vm_commands" -a crea
 complete -c dev-vm -n "not __fish_seen_subcommand_from $dev_vm_commands" -a start -d 'start a stopped dev VM'
 complete -c dev-vm -n "not __fish_seen_subcommand_from $dev_vm_commands" -a stop -d 'stop a running dev VM'
 complete -c dev-vm -n "not __fish_seen_subcommand_from $dev_vm_commands" -a destroy -d 'destroy a dev VM and its GitHub key'
-complete -c dev-vm -n "not __fish_seen_subcommand_from $dev_vm_commands" -a list -d 'list dev VMs with their SSH hostname'
+complete -c dev-vm -n "not __fish_seen_subcommand_from $dev_vm_commands" -a list -d 'list dev VMs with their IP and SSH hostname'
+complete -c dev-vm -n "not __fish_seen_subcommand_from $dev_vm_commands" -a status -d 'show one dev VM in detail'
 complete -c dev-vm -n "not __fish_seen_subcommand_from $dev_vm_commands" -a completion -d 'print the shell completion script'
 complete -c dev-vm -n "not __fish_seen_subcommand_from $dev_vm_commands" -a version -d 'print the version'
 complete -c dev-vm -n "not __fish_seen_subcommand_from $dev_vm_commands" -a help -d 'show usage'
@@ -22,7 +23,7 @@ complete -c dev-vm -n '__fish_seen_subcommand_from create' -o cpus -r -d 'vCPUs 
 complete -c dev-vm -n '__fish_seen_subcommand_from create' -o memory -r -d 'RAM in GiB'
 complete -c dev-vm -n '__fish_seen_subcommand_from create' -o disk -r -d 'disk size in GiB'
 
-complete -c dev-vm -n '__fish_seen_subcommand_from start stop destroy' -a '(__dev_vm_names)' -d 'dev VM'
+complete -c dev-vm -n '__fish_seen_subcommand_from start stop destroy status' -a '(__dev_vm_names)' -d 'dev VM'
 complete -c dev-vm -n '__fish_seen_subcommand_from stop' -o force -d 'kill the VM instead of shutting the guest down gracefully'
 complete -c dev-vm -n '__fish_seen_subcommand_from destroy' -o force -d 'skip the confirmation prompt'
 

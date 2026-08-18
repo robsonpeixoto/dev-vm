@@ -94,6 +94,15 @@ provision:
   owner: "root:root"
   permissions: "644"
   overwrite: true
+# Unprivileged ports from 0, so rootless Docker can publish 80/443 on the
+# guest IP; firewall-system.sh applies it with sysctl --system.
+- mode: data
+  file:
+    url: files/sysctl/99-dev-vm.conf
+  path: /etc/sysctl.d/99-dev-vm.conf
+  owner: "root:root"
+  permissions: "644"
+  overwrite: true
 # Unattended security upgrades for the whole OS; the script below installs the
 # package and masks its timers, and cron.d/05-upgrade-security runs the binary
 # under this policy.
@@ -178,6 +187,11 @@ provision:
   owner: "root:root"
   permissions: "644"
   overwrite: true
+# First system script: the guest must be reachable on every port at its own IP
+# before anything else configures itself.
+- mode: system
+  file:
+    url: scripts/firewall-system.sh
 - mode: system
   file:
     url: scripts/docker-system.sh

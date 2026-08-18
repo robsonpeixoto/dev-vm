@@ -31,6 +31,43 @@ Lima runs a Linux guest from a YAML template. On macOS the VM type is `vz`
 - Other lifecycle commands: `limactl shell <name>`, `limactl stop <name>`,
   `limactl delete -f <name>`, `limactl list`, `limactl info`.
 
+### Network invariants
+
+Non-negotiable, and the reason `firewall-system.sh` exists:
+
+- Every VM has its own `vzNAT` IP, and that IP is the only way in. **Never add
+  a `portForwards` entry** — the two `ignore: true` entries in
+  `lima/dev-vm.yaml` cover `127.0.0.1` and `0.0.0.0` and stay that way.
+- **Never install or enable a firewall in the guest.** `firewall-system.sh` runs
+  first among the system scripts and enforces the opposite: it deletes the
+  `inet filter`, `ip filter` and `ip6 filter` tables (delete, not flush, so a
+  base chain's `policy drop` cannot survive), then `ufw --force disable`,
+  `systemctl disable --now ufw.service` — the unit ships enabled *and* active
+  even while `ufw status` says inactive, so masking alone would leave it
+  running — and `systemctl mask ufw.service`.
+- **Never `nft flush ruleset`.** Lima owns `table ip nat`, whose `LIMADNS`
+  chains hook prerouting and output to redirect guest DNS; wiping the ruleset
+  breaks name resolution until the next boot. Rootless Docker's rules live in
+  its own user network namespace and are out of reach either way.
+- Every port must be usable, including below 1024. That needs
+  `net.ipv4.ip_unprivileged_port_start=0`
+  (`lima/files/sysctl/99-dev-vm.conf`, applied by `sysctl --system` in the same
+  script): rootless Docker publishes ports as the guest user, so the 1024
+  default makes `docker run -p 80:80` fail with `bind: permission denied`.
+  Ubuntu 26.04 happens to ship 0 already; the file pins it instead of trusting
+  that default.
+- Lima does not report the guest IP. `limactl list --format json` carries only
+  `network[].macAddress`, `sshAddress` is `127.0.0.1`, and macOS's
+  `/var/db/dhcpd_leases` keeps stale rows (verified: a lease row for
+  `lima-default` holding an IP from an earlier incarnation of the instance, and
+  no row for the current MAC). So `list`/`status`/`create` read it from the
+  guest with `limactl shell <name> ip -4 -json addr show <iface>`, taking the
+  interface name from Lima's own `network[].interface`. One attempt per Running
+  VM, in parallel, 5 s deadline, through `limactlTry` — the only limactl helper
+  that returns an error instead of calling `die`. Anything else renders `-`.
+- `limactl shell` and `~/.lima/<name>/ssh.config` still ride Lima's internal ssh
+  tunnel on `127.0.0.1`. That is Lima's own mechanism, not a port forward.
+
 ## Provisioning
 
 `provision:` is a list of entries, each with a `mode`. Default mode when

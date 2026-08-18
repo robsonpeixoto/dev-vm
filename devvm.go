@@ -7,6 +7,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -133,6 +134,14 @@ func limactl(args ...string) string {
 	out, err := cmd.Output()
 	limactlCheck(err, stderr.String(), args)
 	return string(out)
+}
+
+// limactlTry runs limactl under a deadline and returns the error instead of
+// exiting, for callers that must survive a stopped or wedged VM.
+func limactlTry(timeout time.Duration, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return exec.CommandContext(ctx, "limactl", args...).Output()
 }
 
 func limactlRun(args ...string) {

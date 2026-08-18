@@ -8,7 +8,8 @@ go run . create [name]    # create and start the VM
 go run . start [name]     # boot a stopped VM
 go run . stop [name]      # shut it down, keeping the disk
 go run . destroy [name]   # delete it (confirms first; -force skips)
-go run . list             # list VMs with status, size and SSH hostname
+go run . list             # list VMs with status, size, IP and SSH hostname
+go run . status [name]    # one VM in detail, including its IP
 go run . completion zsh   # print the shell completion script
 go run . version          # print the build version
 limactl shell <name>      # open a shell inside
@@ -114,13 +115,33 @@ release.
    ssh -F ~/.lima/myvm/ssh.config lima-myvm
    ```
 
-5. Check what exists — name, Lima status, size, SSH hostname:
+5. Check what exists — name, Lima status, size, guest IP, SSH hostname:
 
    ```sh
    go run . list
    ```
 
-6. Stop and start it. A host reboot leaves every VM stopped; `start` boots it
+   ```
+   NAME    STATUS   CPUS  MEM   DISK   IP              SSH
+   myvm    Running  4     8GiB  50GiB  192.168.64.26   lima-myvm
+   ```
+
+   `IP` is read from the guest, the only place it exists, so a VM that is not
+   running shows `-`. Reach anything the VM serves at that IP — there are no
+   port forwards:
+
+   ```sh
+   curl http://192.168.64.26:3000
+   ```
+
+6. One VM in detail — the same fields plus the dotfiles repo, key path and
+   creation time. The name defaults to `default`:
+
+   ```sh
+   go run . status myvm
+   ```
+
+7. Stop and start it. A host reboot leaves every VM stopped; `start` boots it
    again, re-running provisioning and the readiness probes:
 
    ```sh
@@ -131,7 +152,7 @@ release.
    `stop -force` kills the VM instead of shutting the guest down gracefully —
    faster, but unwritten guest data is lost.
 
-7. Throw it away (deletes the VM, the GitHub key and the local key pair). It
+8. Throw it away (deletes the VM, the GitHub key and the local key pair). It
    asks first — type the VM name back to go ahead, anything else aborts:
 
    ```sh
@@ -152,6 +173,42 @@ release.
 
 State lives in `~/.config/dev-vm/state.json`, keys in
 `~/.config/dev-vm/keys/`.
+
+## Networking
+
+Every VM has its own IP on the `vzNAT` interface, and that IP is the only way
+into it. The rules behind that:
+
+- **No port forwarding, ever.** `portForwards` in `lima/dev-vm.yaml` ignores
+  both `127.0.0.1` and `0.0.0.0`. A service in the guest is reached at the
+  guest IP and its own port, never at a forwarded port on the Mac.
+- **No firewall in the guest.** `lima/scripts/firewall-system.sh` runs first on
+  every boot: it deletes the `inet/ip/ip6 filter` tables, then disables, stops
+  and masks `ufw.service` so a package upgrade or a dotfiles checkout cannot
+  switch one back on. Lima's own `table ip nat` is left alone — its `LIMADNS`
+  chains redirect guest DNS, and a blanket `nft flush ruleset` would break name
+  resolution.
+- **Every port is usable, including below 1024.** The guest sets
+  `net.ipv4.ip_unprivileged_port_start=0`
+  (`/etc/sysctl.d/99-dev-vm.conf`), so rootless Docker can publish 80 and 443:
+
+  ```sh
+  limactl shell myvm docker run -d -p 80:80 nginx
+  curl "http://$(go run . status myvm | awk '/^IP/{print $2}')/"
+  ```
+
+- **The IP comes from the guest.** Lima does not report it —
+  `limactl list --format json` carries only the MAC, and the macOS DHCP lease
+  file keeps stale rows — so `list` and `status` run
+  `limactl shell <name> ip -4 -json addr show lima0`, once per running VM, in
+  parallel, with a 5 s deadline. A VM that is stopped or slow to answer shows
+  `-` rather than failing the command.
+- It is a DHCP lease, so it can change when the VM reboots. Read it from
+  `go run . list` or `go run . status <name>` instead of hardcoding it.
+
+`limactl shell` and the generated `~/.lima/<name>/ssh.config` still go through
+Lima's own ssh tunnel on `127.0.0.1`. That is internal to Lima, not a
+`portForwards` entry.
 
 ## Shell completion
 
@@ -421,7 +478,8 @@ user), then readiness probes gate `limactl start`.
    (staged at `/usr/local/lib/dev-vm/docker-rootless-override.conf`;
    `docker-user.sh` installs it into `~/.config/systemd/user/`), the
    unattended-upgrades policy in
-   `/etc/apt/apt.conf.d/`, and the maintenance cron: the runner
+   `/etc/apt/apt.conf.d/`, the open-ports sysctl
+   (`/etc/sysctl.d/99-dev-vm.conf`), and the maintenance cron: the runner
    `/usr/local/sbin/dev-vm-cron`, its jobs
    `/usr/local/lib/dev-vm/cron.d/05-upgrade-security`, `10-update-docker`,
    `11-update-git`, `12-update-mise`, `15-update-neovim` and `20-prune-docker`,
@@ -435,21 +493,28 @@ user), then readiness probes gate `limactl start`.
    jobs never run in parallel or fight for the dpkg lock, and it skips a tick
    entirely while `/run/lima-boot-done` is missing, i.e. while boot
    provisioning still owns apt.
-2. **`docker-system.sh`** — installs Docker Engine from Docker's apt repo
+2. **`firewall-system.sh`** — keeps the guest network open, first of the system
+   scripts: installs `nftables` when missing, deletes the `inet/ip/ip6 filter`
+   tables (never `nft flush ruleset` — Lima's `table ip nat` carries the
+   `LIMADNS` chains), disables, stops and masks `ufw.service`, then
+   `sysctl --system` to apply `net.ipv4.ip_unprivileged_port_start=0`. Rootless
+   Docker's own rules live in its user network namespace and are untouched. See
+   [networking](#networking).
+3. **`docker-system.sh`** — installs Docker Engine from Docker's apt repo
    (with `docker-ce-rootless-extras` and `passt`) when any of it is missing,
    then masks the system-wide `docker`/`containerd` units so only the rootless
    daemon exists. Upgrades come from `10-update-docker`.
-3. **`git-system.sh`** — installs git from the git-core PPA
+4. **`git-system.sh`** — installs git from the git-core PPA
    (`ppa:git-core/ppa`, upstream releases) when the PPA or git is missing;
    upgrades come from `11-update-git`.
-4. **`zsh-system.sh`** — installs zsh when missing, `chsh` the guest
+5. **`zsh-system.sh`** — installs zsh when missing, `chsh` the guest
    user to zsh, and
    sources `/etc/profile.d/docker-host.sh` and `/etc/profile.d/dev-vm.sh` from
    `/etc/zsh/zshenv` so non-login zsh (`limactl shell <name> <cmd>`) also gets
    `DOCKER_HOST`, `DEV_VM` and `DEV_VM_NAME`.
-5. **`mise-system.sh`** — installs mise from its apt repo when it is missing;
+6. **`mise-system.sh`** — installs mise from its apt repo when it is missing;
    upgrades come from `12-update-mise`.
-6. **`neovim-system.sh`** — installs `curl` plus the plugin build toolchain the
+7. **`neovim-system.sh`** — installs `curl` plus the plugin build toolchain the
    tarball does not ship (`tree-sitter-cli` and `build-essential` for
    `nvim-treesitter` parsers, `luarocks` with `luajit` for Lua rocks, `cargo`
    for Rust-based plugins) when any of it is missing, then —
@@ -459,20 +524,20 @@ user), then readiness probes gate `limactl start`.
    picked from `uname -m`) and links it at `/usr/local/bin/nvim`. The same
    installer backs the `15-update-neovim` cron job, so first boot and upgrade
    share one code path.
-7. **`unattended-upgrades-system.sh`** — installs `unattended-upgrades` and
+8. **`unattended-upgrades-system.sh`** — installs `unattended-upgrades` and
    masks its `apt-daily` timers, leaving `dev-vm-cron` the only apt scheduler;
    `cron.d/05-upgrade-security` calls the binary, so Ubuntu security updates
    (kernel, openssl, openssh) land without anyone asking. Policy lives in
    `/etc/apt/apt.conf.d/52dev-vm-unattended-upgrades`: security pockets only,
    no automatic reboot, unused kernels and dependencies removed.
-8. **`ssh-known-hosts.sh`** — rewrites `~/.ssh/known_hosts` from live
+9. **`ssh-known-hosts.sh`** — rewrites `~/.ssh/known_hosts` from live
    `ssh-keyscan github.com` output.
-9. **`omz-user.sh`** — installs oh-my-zsh (skipped if `~/.oh-my-zsh` exists).
-10. **`dotfiles.sh`** — clones the bare repo to `~/.dotfiles`, checks it out
+10. **`omz-user.sh`** — installs oh-my-zsh (skipped if `~/.oh-my-zsh` exists).
+11. **`dotfiles.sh`** — clones the bare repo to `~/.dotfiles`, checks it out
    over `$HOME` (clobbered files move to `~/tmp/config-backup`), and prepends
    the GitHub ssh stanza back onto `~/.ssh/config`. No-op without
    `DOTFILES_REPO`.
-11. **`docker-user.sh`** — installs the pasta override into
+12. **`docker-user.sh`** — installs the pasta override into
    `~/.config/systemd/user/docker.service.d/`, then
    `dockerd-rootless-setuptool.sh install` and selects the
    `rootless` context. The daemon comes up with pasta networking instead of
@@ -480,7 +545,7 @@ user), then readiness probes gate `limactl start`.
    `DOCKERD_ROOTLESS_ROOTLESSKIT_NET=pasta` (with its `implicit` port driver)
    for faster container egress. Still experimental upstream — drop the override
    entry from `lima/dev-vm.yaml` and recreate to fall back to slirp4netns.
-12. **`mise-user.sh`** — activates mise in `~/.zshrc` (unless the oh-my-zsh
+13. **`mise-user.sh`** — activates mise in `~/.zshrc` (unless the oh-my-zsh
    mise plugin already does), `mise trust --all`, `mise install`.
 
 ```mermaid
@@ -491,9 +556,11 @@ flowchart TD
         d3["apt.conf.d/52dev-vm-unattended-upgrades<br>security-only upgrade policy"]
         d4["dev-vm-cron + cron.d/05-upgrade-security<br>+ cron.d/10-update-docker + cron.d/11-update-git<br>+ cron.d/12-update-mise + cron.d/15-update-neovim<br>+ cron.d/20-prune-docker<br>sequential jobs every 6h"]
         d5["install-neovim<br>shared neovim tarball installer"]
+        d6["sysctl.d/99-dev-vm.conf<br>unprivileged ports from 0"]
     end
 
     subgraph system["system scripts (root)"]
+        s0["firewall-system.sh<br>drop filter tables, mask ufw,<br>apply the open-ports sysctl"]
         s1["docker-system.sh<br>Docker packages, mask system daemon"]
         s1b["git-system.sh<br>install git from the git-core PPA"]
         s2["zsh-system.sh<br>install zsh, set login shell,<br>hook both profile.d files into /etc/zsh/zshenv"]
@@ -516,7 +583,7 @@ flowchart TD
     end
 
     data --> system
-    s1 --> s1b --> s2 --> s3 --> s4 --> s5
+    s0 --> s1 --> s1b --> s2 --> s3 --> s4 --> s5
     system --> user
     u1 --> u2 --> u3 --> u4 --> u5
     user --> probes
