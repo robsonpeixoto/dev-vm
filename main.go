@@ -18,7 +18,7 @@ Usage:
   dev-vm stop [name] [-force]
   dev-vm destroy [name] [-force]
   dev-vm list
-  dev-vm status [name]
+  dev-vm status [name] [-ip]
   dev-vm completion <bash|zsh|fish>
   dev-vm version
 

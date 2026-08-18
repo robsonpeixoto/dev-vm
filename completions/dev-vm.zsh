@@ -40,8 +40,13 @@ _dev_vm() {
                 '-disk[disk size in GiB]:gib:' \
                 '1:name:'
             ;;
-        start | status)
+        start)
             _arguments '1:name:_dev_vm_names'
+            ;;
+        status)
+            _arguments \
+                '-ip[print only the guest IP, empty when unavailable]' \
+                '1:name:_dev_vm_names'
             ;;
         destroy)
             _arguments \

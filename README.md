@@ -10,6 +10,7 @@ go run . stop [name]      # shut it down, keeping the disk
 go run . destroy [name]   # delete it (confirms first; -force skips)
 go run . list             # list VMs with status, size, IP and SSH hostname
 go run . status [name]    # one VM in detail, including its IP
+go run . status [name] -ip  # just the IP, for scripts
 go run . completion zsh   # print the shell completion script
 go run . version          # print the build version
 limactl shell <name>      # open a shell inside
@@ -141,6 +142,15 @@ release.
    go run . status myvm
    ```
 
+   `-ip` prints the guest IP alone, for scripts:
+
+   ```sh
+   curl "http://$(go run . status myvm -ip):3000"
+   ```
+
+   A VM that is not running, or that does not answer within the 5 s deadline,
+   prints an empty line and exits 0.
+
 7. Stop and start it. A host reboot leaves every VM stopped; `start` boots it
    again, re-running provisioning and the readiness probes:
 
@@ -194,7 +204,7 @@ into it. The rules behind that:
 
   ```sh
   limactl shell myvm docker run -d -p 80:80 nginx
-  curl "http://$(go run . status myvm | awk '/^IP/{print $2}')/"
+  curl "http://$(go run . status myvm -ip)/"
   ```
 
 - **The IP comes from the guest.** Lima does not report it —
