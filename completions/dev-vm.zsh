@@ -12,6 +12,7 @@ _dev_vm() {
     local -a commands
     commands=(
         'create:create a dev VM'
+        'recreate:rebuild a dev VM, keeping the guest home directory'
         'start:start a stopped dev VM'
         'stop:stop a running dev VM'
         'destroy:destroy a dev VM and its GitHub key'
@@ -39,6 +40,15 @@ _dev_vm() {
                 '-memory[RAM in GiB]:gib:' \
                 '-disk[disk size in GiB]:gib:' \
                 '1:name:'
+            ;;
+        recreate)
+            _arguments \
+                '-create-ssh-key=-[create and register a new key]:bool:(true false)' \
+                '-force[skip the confirmation prompt]' \
+                '-cpus[vCPUs for the VM]:count:' \
+                '-memory[RAM in GiB]:gib:' \
+                '-disk[disk size in GiB]:gib:' \
+                '1:name:_dev_vm_names'
             ;;
         start)
             _arguments '1:name:_dev_vm_names'

@@ -8,7 +8,7 @@ _dev_vm() {
     COMPREPLY=()
 
     if [ "$COMP_CWORD" -eq 1 ]; then
-        COMPREPLY=($(compgen -W "create start stop destroy list status completion version help" -- "$cur"))
+        COMPREPLY=($(compgen -W "create recreate start stop destroy list status completion version help" -- "$cur"))
         return
     fi
 
@@ -20,6 +20,18 @@ _dev_vm() {
             ;;
         esac
         COMPREPLY=($(compgen -W "-create-ssh-key= -dotfiles -no-dotfiles -cpus -memory -disk -help" -- "$cur"))
+        ;;
+    recreate)
+        case $prev in
+        -cpus | --cpus | -memory | --memory | -disk | --disk)
+            return
+            ;;
+        esac
+        if [ "${cur:0:1}" = "-" ]; then
+            COMPREPLY=($(compgen -W "-create-ssh-key= -force -cpus -memory -disk -help" -- "$cur"))
+        else
+            COMPREPLY=($(compgen -W "$("${COMP_WORDS[0]}" __names 2>/dev/null)" -- "$cur"))
+        fi
         ;;
     start)
         if [ "${cur:0:1}" = "-" ]; then
