@@ -18,7 +18,8 @@ Lima runs a Linux guest from a YAML template. On macOS the VM type is `vz`
   `~/.lima/<name>/lima.yaml`. That file — not the repo template — is the source
   of truth for later boots. Editing `lima/dev-vm.yaml` or `lima/scripts/*.sh`
   has **no effect on an existing VM**; recreate it
-  (`go run . destroy && go run . create`) or `limactl edit <name>`.
+  (`go run . recreate <name>`, which preserves the guest `$HOME`, or
+  `go run . destroy && go run . create`) or `limactl edit <name>`.
 - Instance directory holds `lima.yaml`, `basedisk`/`diffdisk`, `cidata.iso`,
   `ha.stdout.log`, `ha.stderr.log`, `serial*.log`.
 - Guest configuration is delivered by **cloud-init** through `cidata.iso`,
@@ -346,5 +347,39 @@ change in this repo.
   time; `go run .` picks up edits automatically, a prebuilt `devvm` binary
   must be rebuilt.
 - After changing a template or script, the VM must be recreated
-  (`go run . destroy <name> && go run . create <name>`) for the change to
-  apply.
+  (`go run . recreate <name>`, or `go run . destroy <name> && go run . create
+  <name>`) for the change to apply.
+
+## recreate
+
+`go run . recreate [name]` rebuilds a VM from the current template while
+keeping the guest home directory. `recreate.go` archives `$HOME` from the guest
+over `limactl shell <name> sh -c 'tar -C "$HOME" -czf - …'` into
+`~/.config/dev-vm/backups/<name>-<timestamp>.tar.gz`, deletes the instance,
+calls the same `createVM` helper `create` uses, then extracts the archive back
+with `tar -xzf -`. Both directions go through `limactlPipe`, the only limactl
+helper that wires stdin/stdout to the caller and returns the error, so a tar
+exit code of 1 (a file changed underneath it in the live guest) is a warning
+and anything else is fatal.
+
+- `homeExcludes` lists what provisioning owns and must not come back:
+  `~/.ssh/id_ed25519{,.pub}`, `~/.ssh/config`, `~/.ssh/lima-github.conf`,
+  `~/.ssh/authorized_keys` (Lima's, regenerated per instance), `~/.cache` and
+  `~/.local/share/docker`. Restoring the old private key would leave the VM
+  with a key GitHub no longer holds, and restoring the old `authorized_keys`
+  would lock `limactl shell` out. Everything else in the archive overwrites the
+  freshly provisioned copy, which is safe because the dotfiles repo is the
+  same one.
+- The dotfiles repo is not a flag: it is read from the state entry, so a
+  restored home and its dotfiles cannot diverge. `-dotfiles`/`-no-dotfiles`
+  are deliberately absent; every other `create` flag is accepted.
+- `-cpus`/`-memory`/`-disk` default to 0 meaning "unset", and
+  `recreateResources` resolves them against the live instance's size
+  (`limactl list --format json`, bytes, so `>>30`) instead of
+  `settingsResources()`. A rebuild therefore keeps the size the VM has, and
+  passing a flag resizes it — the one supported way to resize without losing
+  `$HOME`.
+- Everything that can fail cheaply happens before the instance is deleted:
+  `checkScopes`, the confirmation prompt, then the archive, which must be at
+  least `minArchiveSize` bytes on disk. `backupHome` starts a stopped VM first
+  (`ensureRunning`) since the home directory only exists inside the guest.
