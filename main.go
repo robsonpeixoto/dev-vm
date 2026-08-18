@@ -14,6 +14,8 @@ const usage = `Manage isolated Lima dev VMs with SSH access to GitHub.
 Usage:
   dev-vm create [name] [-create-ssh-key=false] [-dotfiles REPO|-no-dotfiles]
                 [-cpus N] [-memory GiB] [-disk GiB]
+  dev-vm recreate [name] [-create-ssh-key=false] [-force]
+                  [-cpus N] [-memory GiB] [-disk GiB]
   dev-vm start [name]
   dev-vm stop [name] [-force]
   dev-vm destroy [name] [-force]
@@ -33,6 +35,8 @@ func main() {
 	switch os.Args[1] {
 	case "create":
 		cmdCreate(os.Args[2:])
+	case "recreate":
+		cmdRecreate(os.Args[2:])
 	case "start":
 		cmdStart(os.Args[2:])
 	case "stop":

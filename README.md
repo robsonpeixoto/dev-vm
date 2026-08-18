@@ -5,6 +5,7 @@ forwards, rootless Docker, zsh + oh-my-zsh, mise, neovim, GitHub SSH access.
 
 ```sh
 go run . create [name]    # create and start the VM
+go run . recreate [name]  # rebuild it from the template, keeping $HOME
 go run . start [name]     # boot a stopped VM
 go run . stop [name]      # shut it down, keeping the disk
 go run . destroy [name]   # delete it (confirms first; -force skips)
@@ -162,7 +163,52 @@ release.
    `stop -force` kills the VM instead of shutting the guest down gracefully —
    faster, but unwritten guest data is lost.
 
-8. Throw it away (deletes the VM, the GitHub key and the local key pair). It
+8. Rebuild it after changing the template or a provisioning script, keeping
+   the guest home directory:
+
+   ```sh
+   go run . recreate myvm
+   ```
+
+   Provisioning is flattened into the instance at create time, so template and
+   script edits only reach a VM that is built again. `recreate` does that
+   without costing the state that lives in `$HOME` — dotfiles, `gh` and
+   `claude` credentials, shell history, checked-out repositories:
+
+   1. archives the guest home directory to
+      `~/.config/dev-vm/backups/<name>-<timestamp>.tar.gz`, starting the VM
+      first if it is stopped,
+   2. deletes the Lima VM,
+   3. creates it again from the current template, with the dotfiles repo
+      recorded in the state file,
+   4. extracts the archive back over the new home directory.
+
+   Everything outside `$HOME` is gone: installed packages, Docker images,
+   `/etc` edits. That is the point — the new VM is provisioned from scratch.
+
+   What the archive leaves out is what provisioning rewrites anyway: the VM's
+   ssh key and `~/.ssh/config`, Lima's `authorized_keys`, `~/.cache`, and the
+   rootless Docker data in `~/.local/share/docker`. So the rebuilt VM gets a
+   fresh GitHub key, as `create` does, and keeps the rest of `~/.ssh`
+   (`known_hosts`, your own extra keys).
+
+   `recreate` takes every `create` flag except `-dotfiles`/`-no-dotfiles`: the
+   dotfiles repo has to stay the same for the restored home to make sense, so
+   it comes from `~/.config/dev-vm/state.json`. `-cpus`, `-memory` and `-disk`
+   default to the size the instance already has rather than to settings.json,
+   which is how a rebuild can also resize:
+
+   ```sh
+   go run . recreate myvm -memory 32
+   ```
+
+   It confirms first (`y`/`N`); `-force` skips the prompt and is mandatory
+   without a terminal on stdin. The archive is gzipped inside the guest, so a
+   multi-gigabyte home takes a few minutes in each direction. The token scope is checked and the archive is
+   written and size-checked before the VM is deleted, so an auth failure or a
+   failed archive costs nothing. The archive is kept afterwards.
+
+9. Throw it away (deletes the VM, the GitHub key and the local key pair). It
    asks first — type the VM name back to go ahead, anything else aborts:
 
    ```sh
@@ -182,7 +228,9 @@ release.
    (logged out, expired token, offline) leaves the VM usable.
 
 State lives in `~/.config/dev-vm/state.json`, keys in
-`~/.config/dev-vm/keys/`.
+`~/.config/dev-vm/keys/`, home directory archives from `recreate` in
+`~/.config/dev-vm/backups/`. Nothing prunes the archives — delete the old ones
+yourself.
 
 ## Networking
 
@@ -477,7 +525,8 @@ scripts skip their apt and download work once everything is in place, so only
 the first boot goes to the network and restarts stay fast; upgrades are the
 cron jobs' work ([staying patched](#staying-patched)). The template
 is flattened at create time, so after editing `lima/dev-vm.yaml` or
-`lima/scripts/*.sh` the VM must be recreated.
+`lima/scripts/*.sh` the VM must be built again — `go run . recreate <name>`
+does that without losing the guest home directory.
 
 Order: data files, then system scripts (root), then user scripts (guest login
 user), then readiness probes gate `limactl start`.

@@ -1,4 +1,4 @@
-// Shared helpers for the create and destroy subcommands.
+// Shared helpers for the create, recreate and destroy subcommands.
 //
 // All external work goes through command line tools: limactl and gh.
 // VM metadata lives in a JSON state file under ~/.config/dev-vm, alongside an
@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,6 +30,7 @@ var (
 	stateFile    = filepath.Join(stateDir, "state.json")
 	settingsFile = filepath.Join(stateDir, "settings.json")
 	keyDir       = filepath.Join(stateDir, "keys")
+	backupDir    = filepath.Join(stateDir, "backups")
 
 	nameRE = regexp.MustCompile(`^[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*$`)
 	repoRE = regexp.MustCompile(`^[A-Za-z0-9@:._/+~-]+$`)
@@ -49,6 +51,16 @@ func die(format string, args ...any) {
 
 func now() string {
 	return time.Now().UTC().Format(time.RFC3339)
+}
+
+// stamp is a filename-safe UTC timestamp for backup archives.
+func stamp() string {
+	return time.Now().UTC().Format("20060102T150405Z")
+}
+
+// mib renders a byte count as MiB, for progress messages about archives.
+func mib(n int64) string {
+	return fmt.Sprintf("%.1fMiB", float64(n)/(1<<20))
 }
 
 func checkName(name string) {
@@ -142,6 +154,30 @@ func limactlTry(timeout time.Duration, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	return exec.CommandContext(ctx, "limactl", args...).Output()
+}
+
+// limactlPipe runs limactl with stdin and stdout wired to the caller, for
+// streaming a tar archive out of or into the guest, and returns the error
+// instead of exiting: a non-zero tar exit needs interpreting, not dying.
+func limactlPipe(stdin io.Reader, stdout io.Writer, args ...string) error {
+	cmd := exec.Command("limactl", args...)
+	cmd.Stdin = stdin
+	cmd.Stdout = stdout
+	cmd.Stderr = os.Stderr
+	err := cmd.Run()
+	if errors.Is(err, exec.ErrNotFound) {
+		die("limactl not found; install Lima")
+	}
+	return err
+}
+
+// exitCode is the process exit code, or -1 when the command never ran.
+func exitCode(err error) int {
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		return exit.ExitCode()
+	}
+	return -1
 }
 
 func limactlRun(args ...string) {
