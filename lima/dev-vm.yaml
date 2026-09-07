@@ -16,11 +16,9 @@ memory: 2GiB
 disk: 50GiB
 networks:
   - vzNAT: true
-containerd:
-  system: false
-  user: false
 ssh:
   forwardAgent: false
+plain: true
 user:
   home: /home/{{.User}}
   shell: /usr/bin/zsh
@@ -29,14 +27,6 @@ param:
   # Dotfiles bare repo to check out over the guest $HOME. Empty disables it;
   # devvm create sets it from -dotfiles or ~/.config/dev-vm/settings.json.
   DOTFILES_REPO: ""
-portForwards:
-  - ignore: true
-    guestIP: "127.0.0.1"
-    proto: any
-  - ignore: true
-    guestIP: "0.0.0.0"
-    guestIPMustBeZero: false
-    proto: any
 provision:
   # GitHub SSH access: private key generated/registered by devvm create, which
   # materializes this embedded tree into a temp dir and writes the key at
