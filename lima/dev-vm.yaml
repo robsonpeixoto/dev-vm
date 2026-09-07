@@ -243,8 +243,8 @@ probes:
       fi
     hint: |
       Rootless Docker did not come up. Check it in the guest with:
-        limactl shell <name> systemctl --user status docker
-        limactl shell <name> journalctl --user -u docker
+        limactl shell {{.Name}} systemctl --user status docker
+        limactl shell {{.Name}} journalctl --user -u docker
       Setup happens in lima/scripts/docker-user.sh.
   - mode: readiness
     description: github.com accepts the provisioned ssh key
@@ -259,6 +259,6 @@ probes:
     hint: |
       GitHub SSH authentication failed. The key is generated and registered by
       devvm create; recreate it with:
-        go run . create <name> -create-ssh-key
+        go run . create {{.Name}} -create-ssh-key
       A missing admin:public_key token scope is the usual cause:
         gh auth refresh -h github.com -s admin:public_key
