@@ -22,6 +22,7 @@ containerd:
 ssh:
   forwardAgent: false
 user:
+  home: /home/{{.User}}
   shell: /usr/bin/zsh
 mounts: []
 param:
