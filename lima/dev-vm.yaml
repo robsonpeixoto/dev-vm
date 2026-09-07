@@ -18,7 +18,6 @@ networks:
   - vzNAT: true
 ssh:
   forwardAgent: false
-plain: true
 user:
   home: /home/{{.User}}
   shell: /usr/bin/zsh
