@@ -19,7 +19,7 @@ _dev_vm() {
             return
             ;;
         esac
-        COMPREPLY=($(compgen -W "-create-ssh-key= -dotfiles -no-dotfiles -cpus -memory -disk -help" -- "$cur"))
+        COMPREPLY=($(compgen -W "-create-ssh-key= -dotfiles -no-dotfiles -cpus -memory -disk -nested -help" -- "$cur"))
         ;;
     start)
         if [ "${cur:0:1}" = "-" ]; then

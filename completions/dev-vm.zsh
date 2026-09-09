@@ -38,6 +38,7 @@ _dev_vm() {
                 '-cpus[vCPUs for the VM]:count:' \
                 '-memory[RAM in GiB]:gib:' \
                 '-disk[disk size in GiB]:gib:' \
+                '-nested[run the VM with nested virtualization]' \
                 '1:name:'
             ;;
         start)

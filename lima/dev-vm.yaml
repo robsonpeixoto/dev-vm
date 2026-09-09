@@ -14,6 +14,10 @@ vmType: vz
 cpus: 2
 memory: 2GiB
 disk: 50GiB
+# devvm create -nested (or "nested": true in settings.json) flips this to true;
+# it needs an Apple M3 or later. The guest then gets /dev/kvm, and kvm-system.sh
+# puts the login user in the kvm group.
+nestedVirtualization: false
 networks:
   - vzNAT: true
 ssh:
@@ -172,6 +176,10 @@ provision:
   - mode: system
     file:
       url: scripts/docker-system.sh
+  # No-op unless the VM was created with nested virtualization.
+  - mode: system
+    file:
+      url: scripts/kvm-system.sh
   - mode: system
     file:
       url: scripts/git-system.sh

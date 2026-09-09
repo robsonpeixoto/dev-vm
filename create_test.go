@@ -364,17 +364,100 @@ func TestTerminfoB64(t *testing.T) {
 
 func TestStartSet(t *testing.T) {
 	res := resources{cpus: 4, memory: 8, disk: 100}
-	got := startSet(res, "git@github.com:user/dotfiles.git", "")
-	want := `.cpus = 4 | .memory = "8GiB" | .disk = "100GiB" | .param.DOTFILES_REPO = "git@github.com:user/dotfiles.git"`
+	got := startSet(res, "git@github.com:user/dotfiles.git", "", false)
+	want := `.cpus = 4 | .memory = "8GiB" | .disk = "100GiB" | .param.DOTFILES_REPO = "git@github.com:user/dotfiles.git"` +
+		` | .nestedVirtualization = false`
 	if got != want {
 		t.Errorf("startSet() = %q, want %q", got, want)
 	}
 	// The CA path is the host one, quoted: the default CAROOT on macOS has a
 	// space in it.
-	got = startSet(res, "", "/Users/x/Library/Application Support/mkcert")
+	got = startSet(res, "", "/Users/x/Library/Application Support/mkcert", false)
 	want += ` | .caCerts.files = ["/Users/x/Library/Application Support/mkcert/rootCA.pem"]`
 	want = strings.Replace(want, `"git@github.com:user/dotfiles.git"`, `""`, 1)
 	if got != want {
 		t.Errorf("startSet() with a CAROOT = %q, want %q", got, want)
+	}
+	got = startSet(res, "", "", true)
+	if !strings.Contains(got, ".nestedVirtualization = true") {
+		t.Errorf("startSet() with nesting = %q, want .nestedVirtualization = true", got)
+	}
+}
+
+func TestResolveNested(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		settings string
+		vm       string
+		argv     []string
+		want     bool
+	}{
+		{
+			name: "no settings, no flag",
+			vm:   "myvm",
+		},
+		{
+			name:     "default block",
+			settings: `{"default": {"nested": true}}`,
+			vm:       "myvm",
+			want:     true,
+		},
+		{
+			name:     "vm block turns nesting off",
+			settings: `{"default": {"nested": true}, "vms": {"myvm": {"nested": false}}}`,
+			vm:       "myvm",
+		},
+		{
+			name:     "vm block applies to its own VM only",
+			settings: `{"vms": {"other": {"nested": true}}}`,
+			vm:       "myvm",
+		},
+		{
+			name: "flag alone",
+			vm:   "myvm",
+			argv: []string{"-nested"},
+			want: true,
+		},
+		{
+			name:     "flag beats the settings",
+			settings: `{"default": {"nested": true}}`,
+			vm:       "myvm",
+			argv:     []string{"-nested=false"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withSettings(t, tc.settings)
+			fs := flag.NewFlagSet("create", flag.ContinueOnError)
+			var nested bool
+			fs.BoolVar(&nested, "nested", false, "")
+			if err := fs.Parse(tc.argv); err != nil {
+				t.Fatal(err)
+			}
+			if got := resolveNested(nested, flagsSet(fs), loadSettings(tc.vm)); got != tc.want {
+				t.Errorf("resolveNested() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestNestedSupported(t *testing.T) {
+	for _, tc := range []struct {
+		brand string
+		want  bool
+	}{
+		{brand: "Apple M1", want: false},
+		{brand: "Apple M2 Max", want: false},
+		{brand: "Apple M3", want: true},
+		{brand: "Apple M4 Pro", want: true},
+		{brand: "Apple M5 Pro", want: true},
+		{brand: "Apple M10", want: true},
+		{brand: "Intel(R) Core(TM) i9-9880H CPU @ 2.30GHz", want: false},
+		{brand: "", want: false},
+	} {
+		t.Run(tc.brand, func(t *testing.T) {
+			if got := nestedSupported(tc.brand); got != tc.want {
+				t.Errorf("nestedSupported(%q) = %v, want %v", tc.brand, got, tc.want)
+			}
+		})
 	}
 }

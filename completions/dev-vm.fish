@@ -22,6 +22,7 @@ complete -c dev-vm -n '__fish_seen_subcommand_from create' -o no-dotfiles -d 'sk
 complete -c dev-vm -n '__fish_seen_subcommand_from create' -o cpus -r -d 'vCPUs for the VM'
 complete -c dev-vm -n '__fish_seen_subcommand_from create' -o memory -r -d 'RAM in GiB'
 complete -c dev-vm -n '__fish_seen_subcommand_from create' -o disk -r -d 'disk size in GiB'
+complete -c dev-vm -n '__fish_seen_subcommand_from create' -o nested -d 'run the VM with nested virtualization'
 
 complete -c dev-vm -n '__fish_seen_subcommand_from start stop delete status' -a '(__dev_vm_names)' -d 'dev VM'
 complete -c dev-vm -n '__fish_seen_subcommand_from status' -o ip -d 'print only the guest IP, empty when unavailable'

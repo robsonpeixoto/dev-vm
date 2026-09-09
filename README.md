@@ -86,7 +86,7 @@ release.
    ```
 
    Put `"dotfiles": "<repo>"` in the `default` block of
-   `~/.config/dev-vm/settings.json` (see step 4) to enable it for every VM;
+   `~/.config/dev-vm/settings.json` (see step 5) to enable it for every VM;
    `-no-dotfiles` skips it.
 
 3. Optional — size the VM. `-memory` and `-disk` are plain integers in GiB:
@@ -95,17 +95,26 @@ release.
    go run . create myvm -cpus 8 -memory 16 -disk 100
    ```
 
-   The same keys work in `~/.config/dev-vm/settings.json` (see step 4) as
+   The same keys work in `~/.config/dev-vm/settings.json` (see step 5) as
    machine-wide defaults. A flag beats settings.json, which beats the built-in
    defaults. Size is baked into the instance at create time, so changing it
    means `go run . delete myvm && go run . create myvm -cpus …`.
 
-4. Optional — settings.json. `~/.config/dev-vm/settings.json` holds a
+4. Optional — nested virtualization, for running VMs inside the dev VM:
+
+   ```sh
+   go run . create myvm -nested
+   ```
+
+   Needs an Apple M3 or later, and like the size it is fixed at create time.
+   See [nested virtualization](#nested-virtualization).
+
+5. Optional — settings.json. `~/.config/dev-vm/settings.json` holds a
    `default` block that applies to every VM, plus a `vms` block keyed by VM
    name that overrides it key by key. `clone` lists repositories to clone in
    the guest, per GitHub org, with the directory they go under, `mkcert`
-   copies the host mkcert root CA into the VM and `ghostty` installs the
-   xterm-ghostty terminfo entry in it:
+   copies the host mkcert root CA into the VM, `ghostty` installs the
+   xterm-ghostty terminfo entry in it and `nested` gives the guest `/dev/kvm`:
 
    ```json
    {
@@ -116,6 +125,7 @@ release.
        "dotfiles": "git@github.com:user/dotfiles.git",
        "mkcert": true,
        "ghostty": true,
+       "nested": false,
        "clone": [
          {
            "org": "robsonpeixoto",
@@ -158,7 +168,10 @@ release.
    `"ghostty": true` needs Homebrew's ncurses on the host
    (`brew install ncurses`). See [ghostty terminfo](#ghostty-terminfo).
 
-5. Get in:
+   `"nested": true` needs an Apple M3 or later. See
+   [nested virtualization](#nested-virtualization).
+
+6. Get in:
 
    ```sh
    limactl shell myvm
@@ -166,7 +179,7 @@ release.
    ssh -F ~/.lima/myvm/ssh.config lima-myvm
    ```
 
-6. Check what exists — name, Lima status, size, guest IP, SSH hostname:
+7. Check what exists — name, Lima status, size, guest IP, SSH hostname:
 
    ```sh
    go run . list
@@ -185,7 +198,7 @@ release.
    curl http://192.168.64.26:3000
    ```
 
-7. One VM in detail — the same fields plus the dotfiles repo, key path and
+8. One VM in detail — the same fields plus the dotfiles repo, key path and
    creation time. The name defaults to `default`:
 
    ```sh
@@ -201,7 +214,7 @@ release.
    A VM that is not running, or that does not answer within the 5 s deadline,
    prints an empty line and exits 0.
 
-8. Stop and start it. A host reboot leaves every VM stopped; `start` boots it
+9. Stop and start it. A host reboot leaves every VM stopped; `start` boots it
    again, re-running provisioning and the readiness probes:
 
    ```sh
@@ -212,7 +225,7 @@ release.
    `stop -force` kills the VM instead of shutting the guest down gracefully —
    faster, but unwritten guest data is lost.
 
-9. Throw it away (deletes the VM, the GitHub key and the local key pair). It
+10. Throw it away (deletes the VM, the GitHub key and the local key pair). It
    asks first — type the VM name back to go ahead, anything else aborts:
 
    ```sh
@@ -417,7 +430,7 @@ name for VMs created before titles were qualified.
 
 ## mkcert root CA
 
-With `"mkcert": true` in the settings (see step 4 of
+With `"mkcert": true` in the settings (see step 5 of
 [usage](#usage)), `create` reads `mkcert -CAROOT` on the host and gives the VM
 the same certificate authority, so a certificate issued in the guest is
 trusted by the host browser and vice versa.
@@ -496,6 +509,39 @@ the terminal is unknown).
   value, which is the whole point of compiling the entry there.
 - Like every other setting, this is read at create time, so turning it on
   later means delete and create again.
+
+## Nested virtualization
+
+`go run . create myvm -nested` (or `"nested": true` in the settings) sets
+Lima's `nestedVirtualization` on the instance, so the guest can run VMs of its
+own — a QEMU/KVM guest, or a Linux Lima instance for working on this repo from
+inside the dev VM.
+
+```sh
+go run . create myvm -nested
+limactl shell myvm -- ls -l /dev/kvm
+# crw-rw---- 1 root kvm 10, 232 /dev/kvm
+```
+
+- **Apple M3 or later**, with `vmType: vz`. `create` reads
+  `machdep.cpu.brand_string` and refuses earlier silicon (and Intel) before it
+  registers a GitHub key, rather than letting the VM fail to start.
+- The flag wins over the setting in both directions: `-nested` turns it on for
+  a VM the settings leave off, `-nested=false` turns it off for one the
+  `default` block turns on.
+- Fixed at create time, like the size: the template is flattened into
+  `~/.lima/<name>/lima.yaml` when the instance is created. Changing it means
+  `limactl edit <name>` or delete and create again.
+- Without it the guest kernel sees no virtualization extensions and creates no
+  `/dev/kvm` at all, which is why `kvm-system.sh` is a no-op there.
+- `/dev/kvm` is `root:kvm` 0660, and the image does not put the login user in
+  that group; `kvm-system.sh` does, on every boot. Group membership applies to
+  the next login, which the next `limactl shell` already is.
+- Nothing installs QEMU, libvirt or Lima in the guest — that is the operator's
+  `apt-get install qemu-system-arm`, in keeping with
+  [upgrading the guest](#upgrading-the-guest). Lima's own note applies: a
+  nested QEMU needs `-cpu host`, e.g.
+  `qemu-system-aarch64 -accel kvm -cpu host -M virt`.
 
 ## Guest OS
 
@@ -688,19 +734,23 @@ user), then readiness probes gate `limactl start`.
    (with `docker-ce-rootless-extras` and `slirp4netns`) when any of it is missing,
    then masks the system-wide `docker`/`containerd` units so only the rootless
    daemon exists.
-5. **`git-system.sh`** — installs git from the git-core PPA
+5. **`kvm-system.sh`** — puts the login user in the `kvm` group when
+   `/dev/kvm` exists, so a nested guest is reachable without sudo. No-op on a
+   VM created without nesting; see
+   [nested virtualization](#nested-virtualization).
+6. **`git-system.sh`** — installs git from the git-core PPA
    (`ppa:git-core/ppa`, upstream releases) when the PPA or git is missing.
-6. **`go-system.sh`** — installs `golang-go` from the golang-backports PPA
+7. **`go-system.sh`** — installs `golang-go` from the golang-backports PPA
    (`ppa:longsleep/golang-backports`, current upstream Go) when the PPA or the
    package is missing.
-7. **`zsh-system.sh`** — installs zsh when missing, `chsh` the guest
+8. **`zsh-system.sh`** — installs zsh when missing, `chsh` the guest
    user to zsh, and
    sources `/etc/profile.d/docker-host.sh`, `/etc/profile.d/dev-vm.sh` and
    `/etc/profile.d/rust.sh` from `/etc/zsh/zshenv` so non-login zsh
    (`limactl shell <name> <cmd>`) also gets `DOCKER_HOST`, `DEV_VM`,
    `DEV_VM_NAME` and `~/.cargo/bin` on `PATH`.
-8. **`mise-system.sh`** — installs mise from its apt repo when it is missing.
-9. **`neovim-system.sh`** — installs `curl` plus the plugin build toolchain the
+9. **`mise-system.sh`** — installs mise from its apt repo when it is missing.
+10. **`neovim-system.sh`** — installs `curl` plus the plugin build toolchain the
    tarball does not ship (`tree-sitter-cli` and `build-essential` for
    `nvim-treesitter` parsers, `luarocks` with `luajit` for Lua rocks) when any
    of it is missing, then —
@@ -771,6 +821,7 @@ flowchart TD
         s0["firewall-system.sh<br>drop filter tables, mask ufw,<br>apply the open-ports sysctl"]
         s0b["rootless-base-system.sh<br>subuid/subgid, cgroup delegation, linger<br>(plain mode skips Lima's own)"]
         s1["docker-system.sh<br>Docker packages, mask system daemon"]
+        s1a["kvm-system.sh<br>add the user to the kvm group<br>(no-op without nesting)"]
         s1b["git-system.sh<br>install git from the git-core PPA"]
         s1c["go-system.sh<br>install golang-go from the backports PPA"]
         s2["zsh-system.sh<br>install zsh, set login shell,<br>hook the profile.d files into /etc/zsh/zshenv"]
@@ -799,7 +850,7 @@ flowchart TD
     end
 
     data --> system
-    s0 --> s0b --> s1 --> s1b --> s1c --> s2 --> s3 --> s4 --> s4b --> s4c --> s5
+    s0 --> s0b --> s1 --> s1a --> s1b --> s1c --> s2 --> s3 --> s4 --> s4b --> s4c --> s5
     system --> user
     u1 --> u1b --> u2 --> u3 --> u4 --> u5 --> u5r --> u5b --> u6
     user --> probes

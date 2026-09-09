@@ -9,14 +9,16 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 )
 
 const createUsage = `Create an isolated Lima dev VM with SSH access to GitHub.
 
 Usage: devvm create [name] [-create-ssh-key=false] [-dotfiles REPO|-no-dotfiles]
-                    [-cpus N] [-memory GiB] [-disk GiB]
+                    [-cpus N] [-memory GiB] [-disk GiB] [-nested]
 
 - Generates a fresh ed25519 key pair at ~/.config/dev-vm/keys/<name> (no
   passphrase) on every create; -create-ssh-key=false reuses the existing pair.
@@ -28,8 +30,8 @@ Usage: devvm create [name] [-create-ssh-key=false] [-dotfiles REPO|-no-dotfiles]
   private key and ssh config into the guest, and provisioning fetches
   known_hosts.
 - Reads ~/.config/dev-vm/settings.json for the "dotfiles", "cpus", "memory",
-  "disk", "clone", "mkcert" and "ghostty" keys: the "default" block applies to every VM, and
-  "vms".<name> overrides it key by key for this one.
+  "disk", "clone", "mkcert", "ghostty" and "nested" keys: the "default" block
+  applies to every VM, and "vms".<name> overrides it key by key for this one.
 - With dotfiles enabled, provisioning clones the bare repo to ~/.dotfiles in
   the guest and checks it out over $HOME. The repo comes from -dotfiles or
   from the "dotfiles" setting, which turns dotfiles on by default.
@@ -46,6 +48,10 @@ Usage: devvm create [name] [-create-ssh-key=false] [-dotfiles REPO|-no-dotfiles]
 - With "ghostty": true in the settings, captures the xterm-ghostty terminfo
   entry with Homebrew's infocmp (brew install ncurses; the macOS built-in is
   too old for extended capabilities) and compiles it in the guest.
+- -nested (or "nested": true in the settings) turns on Lima's
+  nestedVirtualization, so the guest gets /dev/kvm and can run VMs of its own.
+  Needs an Apple M3 or later; -nested=false overrides the setting. Like the
+  size, it is fixed at create time.
 - Records VM metadata (GitHub key id, key paths) in ~/.config/dev-vm/state.json.
 
 `
@@ -58,6 +64,13 @@ type resources struct {
 }
 
 var defaultResources = resources{cpus: 2, memory: 2, disk: 50}
+
+// nestedMinChip is the first Apple silicon generation whose
+// Virtualization.framework can nest, and appleChipRE pulls that generation out
+// of the host CPU brand string.
+const nestedMinChip = 3
+
+var appleChipRE = regexp.MustCompile(`^Apple M(\d+)`)
 
 // caFiles are the mkcert root CA files copied from the host CAROOT into the
 // guest one. The key comes along so the guest can issue its own certificates.
@@ -111,12 +124,21 @@ func cmdCreate(argv []string) {
 	fs.IntVar(&res.cpus, "cpus", 0, "vCPUs for the VM (default 2, or settings.json)")
 	fs.IntVar(&res.memory, "memory", 0, "RAM in GiB (default 2, or settings.json)")
 	fs.IntVar(&res.disk, "disk", 0, "disk size in GiB (default 50, or settings.json)")
+	var nested bool
+	fs.BoolVar(&nested, "nested", false,
+		"run the VM with nested virtualization (Apple M3 or later); "+
+			"unset, use the \"nested\" entry in settings.json")
 	name := parseArgs(fs, argv)
 
 	checkName(name)
 	config := loadSettings(name)
-	res = resolveResources(res, flagsSet(fs), config)
+	set := flagsSet(fs)
+	res = resolveResources(res, set, config)
 	checkResources(res)
+	nested = resolveNested(nested, set, config)
+	if nested {
+		checkNested()
+	}
 	dotfiles := resolveDotfiles(dotfilesRepo, noDotfiles, config)
 	clones := settingsClones(config)
 	caroot := resolveCAROOT(config)
@@ -157,8 +179,11 @@ func cmdCreate(argv []string) {
 	if terminfo != "" {
 		fmt.Printf("installing the %s terminfo entry\n", ghosttyTerm)
 	}
+	if nested {
+		fmt.Println("nested virtualization on; the guest gets /dev/kvm")
+	}
 	fmt.Printf("VM size %d vCPU, %dGiB RAM, %dGiB disk\n", res.cpus, res.memory, res.disk)
-	startVM(name, dotfiles, res, guestFiles{
+	startVM(name, dotfiles, res, nested, guestFiles{
 		key:      key,
 		clones:   clones,
 		caroot:   caroot,
@@ -208,6 +233,42 @@ func resolveDotfiles(repo string, noDotfiles bool, config vmConfig) string {
 		checkRepo(repo)
 	}
 	return repo
+}
+
+// resolveNested: -nested (either way) wins over settings.json; unset falls back
+// to the "nested" setting.
+func resolveNested(nested bool, set map[string]bool, config vmConfig) bool {
+	if set["nested"] {
+		return nested
+	}
+	return config.Nested != nil && *config.Nested
+}
+
+// checkNested rejects a host whose Virtualization.framework cannot nest, before
+// create gets as far as registering a GitHub key. vz exposes no probe short of
+// starting a VM, so the chip generation is the check: Apple documents nested
+// virtualization as M3 and later, and vz fails the start on anything older.
+func checkNested() {
+	out, err := exec.Command("sysctl", "-n", "machdep.cpu.brand_string").Output()
+	if err != nil {
+		die("cannot read machdep.cpu.brand_string: %v", err)
+	}
+	brand := strings.TrimSpace(string(out))
+	if !nestedSupported(brand) {
+		die("nested virtualization needs an Apple M3 or later, and this host is %q", brand)
+	}
+}
+
+// nestedSupported reads the chip generation out of a macOS CPU brand string
+// ("Apple M3 Pro"). Anything that is not Apple silicon, and every generation
+// below M3, is unsupported.
+func nestedSupported(brand string) bool {
+	m := appleChipRE.FindStringSubmatch(brand)
+	if m == nil {
+		return false
+	}
+	generation, err := strconv.Atoi(m[1])
+	return err == nil && generation >= nestedMinChip
 }
 
 // resolveCAROOT returns the host mkcert CA directory when the "mkcert" setting
@@ -425,7 +486,7 @@ func registerKey(name, title, pub string) int64 {
 // startVM materializes the embedded template tree into a temp directory —
 // limactl resolves provision file.url paths relative to the template — drops
 // the private key at tmp/default where the template expects it, and boots.
-func startVM(name, dotfiles string, res resources, files guestFiles) {
+func startVM(name, dotfiles string, res resources, nested bool, files guestFiles) {
 	dir, err := os.MkdirTemp("", "dev-vm-")
 	if err != nil {
 		die("cannot create temp dir: %v", err)
@@ -486,7 +547,7 @@ func startVM(name, dotfiles string, res resources, files guestFiles) {
 	}
 
 	limactlRun("start", "--tty=false", "--name", name,
-		"--set", startSet(res, dotfiles, files.caroot),
+		"--set", startSet(res, dotfiles, files.caroot, nested),
 		filepath.Join(dir, "dev-vm.yaml"))
 }
 
@@ -510,10 +571,11 @@ func terminfoB64(src string) string {
 // startSet is the yq expression patching the template at creation time. The
 // caCerts entry points at the host CAROOT, not at the temp tree: the hostagent
 // re-reads it every time the instance starts, long after that tree is gone.
-func startSet(res resources, dotfiles, caroot string) string {
+func startSet(res resources, dotfiles, caroot string, nested bool) string {
 	set := fmt.Sprintf(
-		`.cpus = %d | .memory = "%dGiB" | .disk = "%dGiB" | .param.DOTFILES_REPO = %q`,
-		res.cpus, res.memory, res.disk, dotfiles)
+		`.cpus = %d | .memory = "%dGiB" | .disk = "%dGiB" | .param.DOTFILES_REPO = %q`+
+			` | .nestedVirtualization = %t`,
+		res.cpus, res.memory, res.disk, dotfiles, nested)
 	if caroot != "" {
 		set += fmt.Sprintf(` | .caCerts.files = [%q]`, filepath.Join(caroot, "rootCA.pem"))
 	}

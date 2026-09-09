@@ -106,6 +106,7 @@ type vmConfig struct {
 	Clone    *[]cloneGroup `json:"clone"`
 	Mkcert   *bool         `json:"mkcert"`
 	Ghostty  *bool         `json:"ghostty"`
+	Nested   *bool         `json:"nested"`
 }
 
 // cloneGroup is one "clone" entry: repositories of a single GitHub org, all
@@ -170,6 +171,9 @@ func mergeConfig(base, over vmConfig) vmConfig {
 	}
 	if over.Ghostty != nil {
 		base.Ghostty = over.Ghostty
+	}
+	if over.Nested != nil {
+		base.Nested = over.Nested
 	}
 	return base
 }

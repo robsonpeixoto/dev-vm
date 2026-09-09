@@ -243,11 +243,11 @@ matches on output).
   "default": {"cpus": 8, "memory": 16, "disk": 100,
               "dotfiles": "git@github.com:user/dotfiles.git",
               "mkcert": true,
-              "ghostty": true,
+              "ghostty": true, "nested": false,
               "clone": [{"org": "gnosispay", "basedir": "${HOME}/Code/gnosispay",
                          "repositories": ["gp-v2"]}]},
   "vms": {"new-vm": {"cpus": 4, "memory": 4, "clone": [],
-                     "mkcert": false, "ghostty": false}}
+                     "mkcert": false, "ghostty": false, "nested": true}}
 }
 ```
 
@@ -419,6 +419,33 @@ the `TERM` Ghostty exports survives `limactl shell` and ssh.
   `ncurses-bin` when `tic` is missing, and skips an empty staged file.
 - Nothing sets `TERM` in the guest; ssh and `limactl shell` carry the host
   value.
+
+### Nested virtualization
+
+`-nested` (or `"nested": true` in the resolved settings block) patches
+`.nestedVirtualization = true` into the template, so the guest kernel gets
+virtualization extensions and creates `/dev/kvm`.
+
+- `resolveNested` (`create.go`) is the boolean twin of `resolveResources`: the
+  flag wins **in both directions** when `fs.Visit` saw it, so `-nested=false`
+  overrides a `default` block that turns nesting on, and only an absent flag
+  falls through to the setting. There is no `-no-nested`; a bool flag does not
+  need one.
+- `checkNested` runs before the GitHub key is registered, because vz fails the
+  *start* on unsupported hardware — long after `create` has changed state on
+  GitHub. It parses `machdep.cpu.brand_string` with `appleChipRE` and requires
+  `Apple M<n>` with `n >= 3` (`nestedMinChip`); Apple exposes no sysctl for the
+  capability, and vz's own probe needs a running VM. Intel and M1/M2 are
+  rejected.
+- `startSet` writes the field **unconditionally** (`= true` or `= false`),
+  unlike `caCerts.files`, so `lima/dev-vm.yaml`'s `nestedVirtualization: false`
+  is documentation, never the effective value.
+- `scripts/kvm-system.sh` puts the login user in the `kvm` group — udev gives
+  `/dev/kvm` mode 0660 `root:kvm` and the Ubuntu image leaves the user out of
+  it, so without this the device needs sudo. It exits 0 when `/dev/kvm` is
+  absent, which is every VM created without nesting.
+- Nothing installs QEMU or Lima in the guest; that stays the operator's job,
+  like every other upgrade in this repo.
 
 ### VM size
 
