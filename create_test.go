@@ -10,78 +10,129 @@ import (
 	"testing"
 )
 
-func TestSettingsResources(t *testing.T) {
+func TestResolveResources(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		settings string
-		want     resources
-	}{
-		{
-			name: "defaults",
-			want: resources{cpus: 2, memory: 2, disk: 50},
-		},
-		{
-			name:     "settings only",
-			settings: `{"cpus": 3, "memory": 4, "disk": 55}`,
-			want:     resources{cpus: 3, memory: 4, disk: 55},
-		},
-		{
-			name:     "partial settings",
-			settings: `{"memory": 8}`,
-			want:     resources{cpus: 2, memory: 8, disk: 50},
-		},
-		{
-			name:     "unrelated settings ignored",
-			settings: `{"dotfiles": "git@github.com:user/dotfiles.git"}`,
-			want:     resources{cpus: 2, memory: 2, disk: 50},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			withSettings(t, tc.settings)
-			if got := settingsResources(); got != tc.want {
-				t.Errorf("settingsResources() = %+v, want %+v", got, tc.want)
-			}
-		})
-	}
-}
-
-// TestResourceFlags drives the same flag wiring as cmdCreate: flags win over
-// settings.json, unset flags keep the settings value.
-func TestResourceFlags(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		settings string
+		vm       string
 		argv     []string
 		want     resources
 	}{
 		{
-			name: "no flags keeps defaults",
+			name: "no settings, no flags",
+			vm:   "myvm",
 			want: resources{cpus: 2, memory: 2, disk: 50},
 		},
 		{
-			name:     "flag overrides one setting",
-			settings: `{"cpus": 3, "memory": 4, "disk": 55}`,
+			name:     "default block",
+			settings: `{"default": {"cpus": 3, "memory": 4, "disk": 55}}`,
+			vm:       "myvm",
+			want:     resources{cpus: 3, memory: 4, disk: 55},
+		},
+		{
+			name:     "partial default block",
+			settings: `{"default": {"memory": 8}}`,
+			vm:       "myvm",
+			want:     resources{cpus: 2, memory: 8, disk: 50},
+		},
+		{
+			name: "vm block overrides the default block",
+			settings: `{"default": {"cpus": 8, "memory": 16, "disk": 100},
+				"vms": {"myvm": {"cpus": 4, "memory": 4}}}`,
+			vm:   "myvm",
+			want: resources{cpus: 4, memory: 4, disk: 100},
+		},
+		{
+			name: "vm block applies to its own VM only",
+			settings: `{"default": {"cpus": 8, "memory": 16, "disk": 100},
+				"vms": {"other": {"cpus": 4}}}`,
+			vm:   "myvm",
+			want: resources{cpus: 8, memory: 16, disk: 100},
+		},
+		{
+			name:     "flag beats both blocks",
+			settings: `{"default": {"cpus": 3}, "vms": {"myvm": {"cpus": 4}}}`,
+			vm:       "myvm",
 			argv:     []string{"-cpus", "6"},
-			want:     resources{cpus: 6, memory: 4, disk: 55},
+			want:     resources{cpus: 6, memory: 2, disk: 50},
 		},
 		{
 			name: "all flags",
+			vm:   "myvm",
 			argv: []string{"-cpus", "8", "-memory", "16", "-disk", "100"},
 			want: resources{cpus: 8, memory: 16, disk: 100},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			withSettings(t, tc.settings)
+			// Same wiring as cmdCreate: zero flag defaults, settings applied
+			// afterwards to whatever the command line left unset.
 			fs := flag.NewFlagSet("create", flag.ContinueOnError)
-			res := settingsResources()
-			fs.IntVar(&res.cpus, "cpus", res.cpus, "")
-			fs.IntVar(&res.memory, "memory", res.memory, "")
-			fs.IntVar(&res.disk, "disk", res.disk, "")
+			var flags resources
+			fs.IntVar(&flags.cpus, "cpus", 0, "")
+			fs.IntVar(&flags.memory, "memory", 0, "")
+			fs.IntVar(&flags.disk, "disk", 0, "")
 			if err := fs.Parse(tc.argv); err != nil {
 				t.Fatal(err)
 			}
-			if res != tc.want {
-				t.Errorf("resources = %+v, want %+v", res, tc.want)
+			got := resolveResources(flags, flagsSet(fs), loadSettings(tc.vm))
+			if got != tc.want {
+				t.Errorf("resolveResources() = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestResolveDotfiles(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		settings   string
+		vm         string
+		flag       string
+		noDotfiles bool
+		want       string
+	}{
+		{
+			name: "no settings",
+			vm:   "myvm",
+		},
+		{
+			name:     "default block",
+			settings: `{"default": {"dotfiles": "git@github.com:user/dotfiles.git"}}`,
+			vm:       "myvm",
+			want:     "git@github.com:user/dotfiles.git",
+		},
+		{
+			name: "vm block overrides the default block",
+			settings: `{"default": {"dotfiles": "git@github.com:user/dotfiles.git"},
+				"vms": {"myvm": {"dotfiles": "git@github.com:user/other.git"}}}`,
+			vm:   "myvm",
+			want: "git@github.com:user/other.git",
+		},
+		{
+			name:     "vm block turns dotfiles off",
+			settings: `{"default": {"dotfiles": "git@github.com:user/dotfiles.git"}, "vms": {"myvm": {"dotfiles": ""}}}`,
+			vm:       "myvm",
+		},
+		{
+			name:     "flag beats settings",
+			settings: `{"default": {"dotfiles": "git@github.com:user/dotfiles.git"}}`,
+			vm:       "myvm",
+			flag:     "git@github.com:user/flag.git",
+			want:     "git@github.com:user/flag.git",
+		},
+		{
+			name:       "no-dotfiles beats settings",
+			settings:   `{"default": {"dotfiles": "git@github.com:user/dotfiles.git"}}`,
+			vm:         "myvm",
+			noDotfiles: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withSettings(t, tc.settings)
+			got := resolveDotfiles(tc.flag, tc.noDotfiles, loadSettings(tc.vm))
+			if got != tc.want {
+				t.Errorf("resolveDotfiles() = %q, want %q", got, tc.want)
 			}
 		})
 	}
@@ -116,20 +167,24 @@ func TestSettingsClones(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		settings string
+		vm       string
 		want     []cloneRepo
 	}{
 		{
 			name: "no settings",
+			vm:   "myvm",
 		},
 		{
-			name:     "unrelated settings",
-			settings: `{"cpus": 4}`,
+			name:     "settings without a clone key",
+			settings: `{"default": {"cpus": 4}}`,
+			vm:       "myvm",
 		},
 		{
 			name: "one group, two repositories",
-			settings: `{"clone": [{"org": "robsonpeixoto",
+			settings: `{"default": {"clone": [{"org": "robsonpeixoto",
 				"basedir": "${HOME}/Code/robsonpeixoto",
-				"repositories": ["dev-vm", "echo-server"]}]}`,
+				"repositories": ["dev-vm", "echo-server"]}]}}`,
+			vm: "myvm",
 			want: []cloneRepo{
 				{basedir: "${HOME}/Code/robsonpeixoto", repo: "robsonpeixoto/dev-vm"},
 				{basedir: "${HOME}/Code/robsonpeixoto", repo: "robsonpeixoto/echo-server"},
@@ -137,9 +192,10 @@ func TestSettingsClones(t *testing.T) {
 		},
 		{
 			name: "two groups",
-			settings: `{"clone": [
+			settings: `{"default": {"clone": [
 				{"org": "one", "basedir": "/srv/one", "repositories": ["a"]},
-				{"org": "two", "basedir": "/srv/two", "repositories": ["b"]}]}`,
+				{"org": "two", "basedir": "/srv/two", "repositories": ["b"]}]}}`,
+			vm: "myvm",
 			want: []cloneRepo{
 				{basedir: "/srv/one", repo: "one/a"},
 				{basedir: "/srv/two", repo: "two/b"},
@@ -147,12 +203,33 @@ func TestSettingsClones(t *testing.T) {
 		},
 		{
 			name:     "group without repositories",
-			settings: `{"clone": [{"org": "one", "basedir": "/srv/one", "repositories": []}]}`,
+			settings: `{"default": {"clone": [{"org": "one", "basedir": "/srv/one", "repositories": []}]}}`,
+			vm:       "myvm",
+		},
+		{
+			name: "vm block replaces the default list",
+			settings: `{"default": {"clone": [{"org": "one", "basedir": "/srv/one", "repositories": ["a"]}]},
+				"vms": {"myvm": {"clone": [{"org": "two", "basedir": "/srv/two", "repositories": ["b"]}]}}}`,
+			vm:   "myvm",
+			want: []cloneRepo{{basedir: "/srv/two", repo: "two/b"}},
+		},
+		{
+			name: "empty vm list clones nothing",
+			settings: `{"default": {"clone": [{"org": "one", "basedir": "/srv/one", "repositories": ["a"]}]},
+				"vms": {"myvm": {"clone": []}}}`,
+			vm: "myvm",
+		},
+		{
+			name: "vm block keeps the default list for other VMs",
+			settings: `{"default": {"clone": [{"org": "one", "basedir": "/srv/one", "repositories": ["a"]}]},
+				"vms": {"other": {"clone": []}}}`,
+			vm:   "myvm",
+			want: []cloneRepo{{basedir: "/srv/one", repo: "one/a"}},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			withSettings(t, tc.settings)
-			got := settingsClones()
+			got := settingsClones(loadSettings(tc.vm))
 			if !slices.Equal(got, tc.want) {
 				t.Errorf("settingsClones() = %+v, want %+v", got, tc.want)
 			}

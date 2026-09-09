@@ -83,8 +83,9 @@ release.
    go run . create myvm -dotfiles git@github.com:user/dotfiles.git
    ```
 
-   Put `{"dotfiles": "<repo>"}` in `~/.config/dev-vm/settings.json` to enable
-   it for every VM; `-no-dotfiles` skips it.
+   Put `"dotfiles": "<repo>"` in the `default` block of
+   `~/.config/dev-vm/settings.json` (see step 4) to enable it for every VM;
+   `-no-dotfiles` skips it.
 
 3. Optional — size the VM. `-memory` and `-disk` are plain integers in GiB:
 
@@ -92,37 +93,46 @@ release.
    go run . create myvm -cpus 8 -memory 16 -disk 100
    ```
 
-   The same keys work in `~/.config/dev-vm/settings.json` as machine-wide
-   defaults, next to `dotfiles`:
+   The same keys work in `~/.config/dev-vm/settings.json` (see step 4) as
+   machine-wide defaults. A flag beats settings.json, which beats the built-in
+   defaults. Size is baked into the instance at create time, so changing it
+   means `go run . delete myvm && go run . create myvm -cpus …`.
+
+4. Optional — settings.json. `~/.config/dev-vm/settings.json` holds a
+   `default` block that applies to every VM, plus a `vms` block keyed by VM
+   name that overrides it key by key. `clone` lists repositories to clone in
+   the guest, per GitHub org, with the directory they go under:
 
    ```json
    {
-     "dotfiles": "git@github.com:user/dotfiles.git",
-     "cpus": 4,
-     "memory": 8,
-     "disk": 100
-   }
-   ```
-
-   A flag beats settings.json, which beats the built-in defaults. Size is
-   baked into the instance at create time, so changing it means
-   `go run . delete myvm && go run . create myvm -cpus …`.
-
-4. Optional — clone repositories into the guest. `clone` in
-   `~/.config/dev-vm/settings.json` lists them per GitHub org, with the
-   directory they go under:
-
-   ```json
-   {
-     "clone": [
-       {
-         "org": "robsonpeixoto",
-         "basedir": "${HOME}/Code/robsonpeixoto",
-         "repositories": ["dev-vm", "echo-server"]
+     "default": {
+       "cpus": 8,
+       "memory": 16,
+       "disk": 100,
+       "dotfiles": "git@github.com:user/dotfiles.git",
+       "clone": [
+         {
+           "org": "robsonpeixoto",
+           "basedir": "${HOME}/Code/robsonpeixoto",
+           "repositories": ["dev-vm", "echo-server"]
+         }
+       ]
+     },
+     "vms": {
+       "new-vm": {
+         "cpus": 4,
+         "memory": 4,
+         "clone": []
        }
-     ]
+     }
    }
    ```
+
+   Here `new-vm` gets 4 vCPUs and 4 GiB, keeps the default 100 GiB disk and
+   dotfiles, and clones nothing; every other VM gets the `default` block as
+   written. An override replaces the key outright rather than merging into it,
+   so `"clone": []` means no repositories and `"dotfiles": ""` means no
+   dotfiles. Unknown keys are rejected, at either level.
 
    `basedir` is a guest path; `${HOME}` (or `$HOME`) in it expands in the
    guest. Each repository is cloned over SSH as
@@ -480,8 +490,8 @@ limactl shell <name> df -h /
 
 Resizing is the painful part: `cpus`, `memory` and `disk` are baked into
 `~/.lima/<name>/lima.yaml` at create time. Pick the size up front —
-`go run . create myvm -disk 100`, or the `disk` key in
-`~/.config/dev-vm/settings.json` for every VM. Afterwards the only paths are
+`go run . create myvm -disk 100`, or the `disk` key of the `default` block in
+`~/.config/dev-vm/settings.json` for every VM (or of a `vms` block for one). Afterwards the only paths are
 `limactl stop <name>` plus `limactl edit <name>` to raise `disk:` (Lima grows a
 disk, never shrinks it), or `go run . delete myvm && go run . create myvm
 -disk 100`, which throws the guest away.

@@ -2,12 +2,13 @@
 //
 // All external work goes through command line tools: limactl and gh.
 // VM metadata lives in a JSON state file under ~/.config/dev-vm, alongside an
-// optional user-written settings.json holding defaults such as the dotfiles
-// repo, the VM size and the repositories to clone. SSH key pairs are kept in
-// ~/.config/dev-vm/keys.
+// optional user-written settings.json holding a "default" block — the dotfiles
+// repo, the VM size, the repositories to clone — and per-VM overrides of it
+// under "vms". SSH key pairs are kept in ~/.config/dev-vm/keys.
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -94,34 +95,75 @@ func hostName() string {
 	return host
 }
 
-// loadSettings reads user defaults from ~/.config/dev-vm/settings.json,
-// e.g. {"dotfiles": "<repo>", "cpus": 4, "memory": 8, "disk": 100}.
-func loadSettings() map[string]any {
+// vmConfig is one settings block: the "default" object, or a "vms".<name>
+// object layered over it. The pointers separate an absent key from an explicit
+// override such as "clone": [].
+type vmConfig struct {
+	CPUs     *int          `json:"cpus"`
+	Memory   *int          `json:"memory"`
+	Disk     *int          `json:"disk"`
+	Dotfiles *string       `json:"dotfiles"`
+	Clone    *[]cloneGroup `json:"clone"`
+}
+
+// cloneGroup is one "clone" entry: repositories of a single GitHub org, all
+// cloned under basedir in the guest.
+type cloneGroup struct {
+	Org          string   `json:"org"`
+	Basedir      string   `json:"basedir"`
+	Repositories []string `json:"repositories"`
+}
+
+// loadSettings reads ~/.config/dev-vm/settings.json and returns the config for
+// one VM: the "default" block with the matching "vms" block layered on top,
+// e.g. {"default": {"cpus": 4}, "vms": {"big": {"cpus": 16}}}. Unknown keys are
+// an error, which is also what an old flat settings file hits.
+func loadSettings(name string) vmConfig {
 	data, err := os.ReadFile(settingsFile)
 	if errors.Is(err, os.ErrNotExist) {
-		return map[string]any{}
+		return vmConfig{}
 	}
 	if err != nil {
 		die("cannot read settings %s: %v", settingsFile, err)
 	}
-	var raw any
-	if err := json.Unmarshal(data, &raw); err != nil {
-		die("cannot read settings %s: %v", settingsFile, err)
+	var file struct {
+		Default vmConfig            `json:"default"`
+		VMs     map[string]vmConfig `json:"vms"`
 	}
-	settings, ok := raw.(map[string]any)
-	if !ok {
-		die("settings %s must be a JSON object", settingsFile)
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&file); err != nil {
+		hint := ""
+		if strings.Contains(err.Error(), "unknown field") {
+			hint = "; every VM key belongs under \"default\" or \"vms\".<name>"
+		}
+		die("cannot read settings %s: %v%s", settingsFile, err, hint)
 	}
-	return settings
+	config := file.Default
+	if override, ok := file.VMs[name]; ok {
+		config = mergeConfig(config, override)
+	}
+	return config
 }
 
-// settingsInt reads a positive integer setting; JSON decoding gives float64.
-func settingsInt(key string, v any) int {
-	n, ok := v.(float64)
-	if !ok || n != float64(int(n)) || n <= 0 {
-		die("settings %s: %q must be a positive integer", settingsFile, key)
+// mergeConfig layers a per-VM block over the default one, key by key.
+func mergeConfig(base, over vmConfig) vmConfig {
+	if over.CPUs != nil {
+		base.CPUs = over.CPUs
 	}
-	return int(n)
+	if over.Memory != nil {
+		base.Memory = over.Memory
+	}
+	if over.Disk != nil {
+		base.Disk = over.Disk
+	}
+	if over.Dotfiles != nil {
+		base.Dotfiles = over.Dotfiles
+	}
+	if over.Clone != nil {
+		base.Clone = over.Clone
+	}
+	return base
 }
 
 func run(name string, args ...string) {

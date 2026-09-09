@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -24,18 +23,18 @@ Usage: devvm create [name] [-create-ssh-key=false] [-dotfiles REPO|-no-dotfiles]
 - Starts the VM from the embedded lima/dev-vm.yaml; the template uploads the
   private key and ssh config into the guest, and provisioning fetches
   known_hosts.
+- Reads ~/.config/dev-vm/settings.json for the "dotfiles", "cpus", "memory",
+  "disk" and "clone" keys: the "default" block applies to every VM, and
+  "vms".<name> overrides it key by key for this one.
 - With dotfiles enabled, provisioning clones the bare repo to ~/.dotfiles in
   the guest and checks it out over $HOME. The repo comes from -dotfiles or
-  from {"dotfiles": "<repo>"} in ~/.config/dev-vm/settings.json, which also
-  turns dotfiles on by default for every VM.
+  from the "dotfiles" setting, which turns dotfiles on by default.
 - Sizes the VM at 2 vCPUs, 2 GiB RAM and a 50 GiB disk by default. -cpus,
-  -memory and -disk override that; -memory and -disk are plain integers in
-  GiB. The "cpus", "memory" and "disk" entries in
-  ~/.config/dev-vm/settings.json change the defaults for every VM. Size is
-  fixed at create time — resizing means delete and create again.
-- Clones the repositories listed under "clone" in
-  ~/.config/dev-vm/settings.json as the last user provisioning step; a
-  repository already present in the guest is skipped.
+  -memory and -disk override both that and the settings; -memory and -disk are
+  plain integers in GiB. Size is fixed at create time — resizing means delete
+  and create again.
+- Clones the repositories listed under "clone" as the last user provisioning
+  step; a repository already present in the guest is skipped.
 - Records VM metadata (GitHub key id, key paths) in ~/.config/dev-vm/state.json.
 
 `
@@ -72,16 +71,20 @@ func cmdCreate(argv []string) {
 			"unset, use the \"dotfiles\" entry in settings.json")
 	fs.BoolVar(&noDotfiles, "no-dotfiles", false,
 		"skip dotfiles even when settings.json configures them")
-	res := settingsResources()
-	fs.IntVar(&res.cpus, "cpus", res.cpus, "vCPUs for the VM")
-	fs.IntVar(&res.memory, "memory", res.memory, "RAM in GiB")
-	fs.IntVar(&res.disk, "disk", res.disk, "disk size in GiB")
+	// Zero defaults: the real ones come from settings.json, which can only be
+	// read once the VM name is known. resolveResources fills in what no flag set.
+	var res resources
+	fs.IntVar(&res.cpus, "cpus", 0, "vCPUs for the VM (default 2, or settings.json)")
+	fs.IntVar(&res.memory, "memory", 0, "RAM in GiB (default 2, or settings.json)")
+	fs.IntVar(&res.disk, "disk", 0, "disk size in GiB (default 50, or settings.json)")
 	name := parseArgs(fs, argv)
 
 	checkName(name)
+	config := loadSettings(name)
+	res = resolveResources(res, flagsSet(fs), config)
 	checkResources(res)
-	dotfiles := resolveDotfiles(dotfilesRepo, noDotfiles)
-	clones := settingsClones()
+	dotfiles := resolveDotfiles(dotfilesRepo, noDotfiles, config)
+	clones := settingsClones(config)
 	if vmExists(name) {
 		die("VM %q already exists; run: devvm delete %s", name, name)
 	}
@@ -147,12 +150,12 @@ func parseArgs(fs *flag.FlagSet, argv []string) string {
 
 // resolveDotfiles: -dotfiles wins over settings.json; unset falls back to
 // settings.
-func resolveDotfiles(repo string, noDotfiles bool) string {
+func resolveDotfiles(repo string, noDotfiles bool, config vmConfig) string {
 	if noDotfiles {
 		return ""
 	}
-	if repo == "" {
-		repo, _ = loadSettings()["dotfiles"].(string)
+	if repo == "" && config.Dotfiles != nil {
+		repo = *config.Dotfiles
 	}
 	if repo != "" {
 		checkRepo(repo)
@@ -160,28 +163,13 @@ func resolveDotfiles(repo string, noDotfiles bool) string {
 	return repo
 }
 
-// settingsClones reads the "clone" entry of settings.json — a list of
-// {"org", "basedir", "repositories"} objects — and flattens it to one entry
-// per repository.
-func settingsClones() []cloneRepo {
-	value, ok := loadSettings()["clone"]
-	if !ok {
+// settingsClones flattens the "clone" setting to one entry per repository.
+func settingsClones(config vmConfig) []cloneRepo {
+	if config.Clone == nil {
 		return nil
 	}
-	data, err := json.Marshal(value)
-	if err != nil {
-		die("settings %s: cannot read \"clone\": %v", settingsFile, err)
-	}
-	var groups []struct {
-		Org          string   `json:"org"`
-		Basedir      string   `json:"basedir"`
-		Repositories []string `json:"repositories"`
-	}
-	if err := json.Unmarshal(data, &groups); err != nil {
-		die("settings %s: \"clone\" must be a list of {org, basedir, repositories} objects", settingsFile)
-	}
 	var clones []cloneRepo
-	for _, g := range groups {
+	for _, g := range *config.Clone {
 		if !ghNameRE.MatchString(g.Org) {
 			die("settings %s: invalid clone org %q", settingsFile, g.Org)
 		}
@@ -209,24 +197,39 @@ func cloneList(clones []cloneRepo) string {
 	return list
 }
 
-// settingsResources: settings.json overrides the built-in defaults; the result
-// is what the -cpus/-memory/-disk flags default to.
-func settingsResources() resources {
-	settings := loadSettings()
+// resolveResources: a flag given on the command line wins, then settings.json,
+// then the built-in defaults.
+func resolveResources(flags resources, set map[string]bool, config vmConfig) resources {
 	res := defaultResources
 	for _, r := range []struct {
-		key string
-		out *int
+		key     string
+		setting *int
+		flag    int
+		out     *int
 	}{
-		{"cpus", &res.cpus},
-		{"memory", &res.memory},
-		{"disk", &res.disk},
+		{"cpus", config.CPUs, flags.cpus, &res.cpus},
+		{"memory", config.Memory, flags.memory, &res.memory},
+		{"disk", config.Disk, flags.disk, &res.disk},
 	} {
-		if v, ok := settings[r.key]; ok {
-			*r.out = settingsInt(r.key, v)
+		if r.setting != nil {
+			if *r.setting <= 0 {
+				die("settings %s: %q must be a positive integer", settingsFile, r.key)
+			}
+			*r.out = *r.setting
+		}
+		if set[r.key] {
+			*r.out = r.flag
 		}
 	}
 	return res
+}
+
+// flagsSet lists the flags that appeared on the command line, so an unset flag
+// falls back to settings.json instead of its zero value.
+func flagsSet(fs *flag.FlagSet) map[string]bool {
+	set := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	return set
 }
 
 func checkResources(res resources) {

@@ -234,6 +234,36 @@ answering `docker info`, and `ssh -T git@github.com` reporting `successfully
 authenticated` (that command exits non-zero even on success, so the probe
 matches on output).
 
+### Settings file
+
+`~/.config/dev-vm/settings.json` is optional and has exactly two root keys:
+
+```json
+{
+  "default": {"cpus": 8, "memory": 16, "disk": 100,
+              "dotfiles": "git@github.com:user/dotfiles.git",
+              "clone": [{"org": "gnosispay", "basedir": "${HOME}/Code/gnosispay",
+                         "repositories": ["gp-v2"]}]},
+  "vms": {"new-vm": {"cpus": 4, "memory": 4, "clone": []}}
+}
+```
+
+- `loadSettings(name)` (`devvm.go`) decodes the file and returns one
+  `vmConfig`: `default` with `vms.<name>` layered over it by `mergeConfig`.
+  `cmdCreate` is its only caller — the settings shape nothing else in the tool
+  depends on.
+- Every field of `vmConfig` is a **pointer**. That is what separates an absent
+  key from an explicit `"clone": []` or `"dotfiles": ""`, both of which must
+  turn the default off rather than fall through to it. An override replaces the
+  key whole — `clone` lists are not concatenated.
+- The decoder runs with `DisallowUnknownFields`, so a typo fails the create
+  instead of being ignored, and an old flat settings file (VM keys at the root)
+  fails with a hint naming `default` and `vms`. There is no compatibility path:
+  such a file must be rewritten.
+- Reading the file needs the VM name, which comes from `parseArgs`, so
+  `cmdCreate` resolves settings *after* flag parsing — see [VM
+  size](#vm-size) for how the flags keep winning anyway.
+
 ### Dotfiles
 
 `go run . create -dotfiles REPO` sets the `DOTFILES_REPO` param (via
@@ -242,9 +272,11 @@ which `lima/scripts/dotfiles.sh` reads as `PARAM_DOTFILES_REPO` in the guest:
 it clones the bare repo to `~/.dotfiles` and checks it out over `$HOME`.
 Empty param means the script exits 0 without doing anything.
 
-- The repo can also come from `{"dotfiles": "<repo>"}` in
+- The repo can also come from the `dotfiles` key in
   `~/.config/dev-vm/settings.json`, which turns dotfiles on for every VM.
-  `-dotfiles REPO` overrides it, `-no-dotfiles` skips it.
+  `-dotfiles REPO` overrides it, `-no-dotfiles` skips it, and a per-VM
+  `"dotfiles": ""` turns it back off for that VM alone — see [Settings
+  file](#settings-file).
 - Pre-existing files the checkout would clobber move to `~/tmp/config-backup`
   keeping their relative path.
 - A dotfiles checkout owning `~/.zshrc`/`~/.bashrc` cannot break `DOCKER_HOST`:
@@ -267,12 +299,14 @@ Empty param means the script exits 0 without doing anything.
 
 ### Repository clones
 
-`clone` in `~/.config/dev-vm/settings.json` lists repositories to clone in the
-guest, grouped per GitHub org:
+The `clone` key of the resolved settings block (see [Settings
+file](#settings-file)) lists repositories to clone in the guest, grouped per
+GitHub org:
 
 ```json
-{"clone": [{"org": "robsonpeixoto", "basedir": "${HOME}/Code/robsonpeixoto",
-            "repositories": ["dev-vm", "echo-server"]}]}
+{"default": {"clone": [{"org": "robsonpeixoto",
+                        "basedir": "${HOME}/Code/robsonpeixoto",
+                        "repositories": ["dev-vm", "echo-server"]}]}}
 ```
 
 - `settingsClones` (`create.go`) validates and flattens it to one
@@ -290,22 +324,31 @@ guest, grouped per GitHub org:
   and logs-and-skips one that fails to clone so a single unreachable repo does
   not take the rest down.
 - No flag configures this; the setting is the only input, and it is read at
-  create time like everything else in the template.
+  create time like everything else in the template. A per-VM `"clone": []`
+  clones nothing for that VM while the default block stays intact for the
+  others.
 
 ### VM size
 
 `cpus`, `memory` and `disk` are **top-level template fields**, not params, so
 `devvm create` patches them with `.cpus = N | .memory = "NGiB" | .disk = "NGiB"`
-rather than `.param.*`. Resolution order: `settingsResources` (`create.go`)
-starts from `defaultResources` (2 vCPUs, 2 GiB, 50 GiB) and applies the
-`cpus`/`memory`/`disk` keys in `~/.config/dev-vm/settings.json`; that result is
-the default handed to the `-cpus`/`-memory`/`-disk` `fs.IntVar` flags, so a flag
-that is passed wins. The values in `lima/dev-vm.yaml` are documentation only —
-`--set` always overwrites them.
+rather than `.param.*`. Resolution order: `resolveResources` (`create.go`)
+starts from `defaultResources` (2 vCPUs, 2 GiB, 50 GiB), applies the
+`cpus`/`memory`/`disk` keys of the resolved settings block, then applies
+whichever of `-cpus`/`-memory`/`-disk` were actually passed. The values in
+`lima/dev-vm.yaml` are documentation only — `--set` always overwrites them.
+
+The flags are registered with a **zero** default and the settings are applied
+after parsing, not before: the settings block depends on the VM name, and the
+name only exists once `parseArgs` has run. `flagsSet` (`fs.Visit`) is what
+tells an unset flag from `-cpus 0`, so the zero default never leaks into the
+template.
 
 Flags and settings are integers in GiB; non-integers are rejected by the `flag`
-package and non-positive values by `checkResources`, both before the VM starts. Because the template is flattened at creation, the size is fixed for
-the instance's life: resizing means `limactl edit` or delete + create.
+package and non-positive values by `resolveResources` (settings) and
+`checkResources` (flags), all before the VM starts. Because the template is
+flattened at creation, the size is fixed for the instance's life: resizing
+means `limactl edit` or delete + create.
 
 `go run . list` reads the live `cpus`/`memory`/`disk` back out of
 `limactl list --format json`, where memory and disk are **bytes**. That is the
