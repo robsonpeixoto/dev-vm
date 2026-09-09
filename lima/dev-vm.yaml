@@ -144,6 +144,9 @@ provision:
       url: scripts/neovim-system.sh
   - mode: system
     file:
+      url: scripts/packages-system.sh
+  - mode: system
+    file:
       url: scripts/no-auto-upgrades-system.sh
   # known_hosts is user state: `boot` mode would run as root, before this user
   # exists, and write /root/.ssh/known_hosts instead.

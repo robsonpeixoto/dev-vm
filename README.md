@@ -505,18 +505,19 @@ user), then readiness probes gate `limactl start`.
 4. **`docker-system.sh`** — installs Docker Engine from Docker's apt repo
    (with `docker-ce-rootless-extras` and `passt`) when any of it is missing,
    then masks the system-wide `docker`/`containerd` units so only the rootless
-   daemon exists. Upgrades come from `10-update-docker`.
+   daemon exists.
 5. **`git-system.sh`** — installs git from the git-core PPA
-   (`ppa:git-core/ppa`, upstream releases) when the PPA or git is missing;
-   upgrades come from `11-update-git`.
-6. **`zsh-system.sh`** — installs zsh when missing, `chsh` the guest
+   (`ppa:git-core/ppa`, upstream releases) when the PPA or git is missing.
+6. **`go-system.sh`** — installs `golang-go` from the golang-backports PPA
+   (`ppa:longsleep/golang-backports`, current upstream Go) when the PPA or the
+   package is missing.
+7. **`zsh-system.sh`** — installs zsh when missing, `chsh` the guest
    user to zsh, and
    sources `/etc/profile.d/docker-host.sh` and `/etc/profile.d/dev-vm.sh` from
    `/etc/zsh/zshenv` so non-login zsh (`limactl shell <name> <cmd>`) also gets
    `DOCKER_HOST`, `DEV_VM` and `DEV_VM_NAME`.
-7. **`mise-system.sh`** — installs mise from its apt repo when it is missing;
-   upgrades come from `12-update-mise`.
-8. **`neovim-system.sh`** — installs `curl` plus the plugin build toolchain the
+8. **`mise-system.sh`** — installs mise from its apt repo when it is missing.
+9. **`neovim-system.sh`** — installs `curl` plus the plugin build toolchain the
    tarball does not ship (`tree-sitter-cli` and `build-essential` for
    `nvim-treesitter` parsers, `luarocks` with `luajit` for Lua rocks, `cargo`
    for Rust-based plugins) when any of it is missing, then —
@@ -526,22 +527,26 @@ user), then readiness probes gate `limactl start`.
    picked from `uname -m`) and links it at `/usr/local/bin/nvim`. The same
    installer is also the upgrade path, so first boot and a later
    `sudo /usr/local/lib/dev-vm/install-neovim` share one code path.
-9. **`no-auto-upgrades-system.sh`** — masks `apt-daily.timer`,
+10. **`packages-system.sh`** — installs the rest of the toolchain from the
+   Ubuntu archive, the packages that need no third-party repo: `tig`,
+   `postgresql` with `libpq-dev`, and `libnss3-tools` (`certutil`, for
+   trusting a local CA). Skipped entirely once all of them are installed.
+11. **`no-auto-upgrades-system.sh`** — masks `apt-daily.timer`,
    `apt-daily-upgrade.timer`, their services and `unattended-upgrades.service`,
    so Ubuntu's stock automatic upgrades never fire. The matching
    `APT::Periodic` zeros ship as the data file above; see
    [upgrading the guest](#upgrading-the-guest).
-10. **`ssh-known-hosts.sh`** — rewrites `~/.ssh/known_hosts` from live
+12. **`ssh-known-hosts.sh`** — rewrites `~/.ssh/known_hosts` from live
    `ssh-keyscan github.com` output.
-11. **`ssh-config-user.sh`** — creates `~/.ssh/config.d` and installs the
+13. **`ssh-config-user.sh`** — creates `~/.ssh/config.d` and installs the
    staged GitHub stanza as `10-github.conf`. It does not touch
    `~/.ssh/config`; see [GitHub SSH key](#github-ssh-key).
-12. **`omz-user.sh`** — installs oh-my-zsh (skipped if `~/.oh-my-zsh` exists).
-13. **`dotfiles.sh`** — clones the bare repo to `~/.dotfiles` and checks it out
+14. **`omz-user.sh`** — installs oh-my-zsh (skipped if `~/.oh-my-zsh` exists).
+15. **`dotfiles.sh`** — clones the bare repo to `~/.dotfiles` and checks it out
    over `$HOME` (clobbered files move to `~/tmp/config-backup`). No-op without
    `DOTFILES_REPO`. The repo owns `~/.ssh/config`, so it is also responsible
    for including the drop-ins above.
-14. **`docker-user.sh`** — installs the pasta override into
+16. **`docker-user.sh`** — installs the pasta override into
    `~/.config/systemd/user/docker.service.d/`, then
    `dockerd-rootless-setuptool.sh install` and selects the
    `rootless` context. The daemon comes up with pasta networking instead of
@@ -549,7 +554,7 @@ user), then readiness probes gate `limactl start`.
    `DOCKERD_ROOTLESS_ROOTLESSKIT_NET=pasta` (with its `implicit` port driver)
    for faster container egress. Still experimental upstream — drop the override
    entry from `lima/dev-vm.yaml` and recreate to fall back to slirp4netns.
-15. **`mise-user.sh`** — activates mise in `~/.zshrc` (unless the oh-my-zsh
+17. **`mise-user.sh`** — activates mise in `~/.zshrc` (unless the oh-my-zsh
    mise plugin already does), `mise trust --all`, `mise install`.
 
 ```mermaid
@@ -568,14 +573,17 @@ flowchart TD
         s0b["rootless-base-system.sh<br>subuid/subgid, cgroup delegation, linger<br>(plain mode skips Lima's own)"]
         s1["docker-system.sh<br>Docker packages, mask system daemon"]
         s1b["git-system.sh<br>install git from the git-core PPA"]
+        s1c["go-system.sh<br>install golang-go from the backports PPA"]
         s2["zsh-system.sh<br>install zsh, set login shell,<br>hook both profile.d files into /etc/zsh/zshenv"]
         s3["mise-system.sh<br>install mise from apt repo"]
         s4["neovim-system.sh<br>install neovim from the release tarball<br>+ tree-sitter-cli, build-essential,<br>luarocks, luajit and cargo"]
+        s4b["packages-system.sh<br>tig, postgresql, libpq-dev,<br>libnss3-tools from the archive"]
         s5["no-auto-upgrades-system.sh<br>mask the apt-daily timers and<br>unattended-upgrades.service"]
     end
 
     subgraph user["user scripts (login user)"]
         u1["ssh-known-hosts.sh<br>pin github.com host keys"]
+        u1b["ssh-config-user.sh<br>install the config.d GitHub drop-in"]
         u2["omz-user.sh<br>install oh-my-zsh"]
         u3["dotfiles.sh<br>check out dotfiles over $HOME"]
         u4["docker-user.sh<br>set up rootless Docker daemon<br>(pasta networking)"]
@@ -588,8 +596,8 @@ flowchart TD
     end
 
     data --> system
-    s0 --> s0b --> s1 --> s1b --> s2 --> s3 --> s4 --> s5
+    s0 --> s0b --> s1 --> s1b --> s1c --> s2 --> s3 --> s4 --> s4b --> s5
     system --> user
-    u1 --> u2 --> u3 --> u4 --> u5
+    u1 --> u1b --> u2 --> u3 --> u4 --> u5
     user --> probes
 ```
