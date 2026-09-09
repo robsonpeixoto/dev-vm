@@ -108,7 +108,32 @@ release.
    baked into the instance at create time, so changing it means
    `go run . delete myvm && go run . create myvm -cpus …`.
 
-4. Get in:
+4. Optional — clone repositories into the guest. `clone` in
+   `~/.config/dev-vm/settings.json` lists them per GitHub org, with the
+   directory they go under:
+
+   ```json
+   {
+     "clone": [
+       {
+         "org": "robsonpeixoto",
+         "basedir": "${HOME}/Code/robsonpeixoto",
+         "repositories": ["dev-vm", "echo-server"]
+       }
+     ]
+   }
+   ```
+
+   `basedir` is a guest path; `${HOME}` (or `$HOME`) in it expands in the
+   guest. Each repository is cloned over SSH as
+   `git@github.com:<org>/<repo>.git` into `<basedir>/<repo>`, as the last user
+   provisioning step, so the provisioned key and `known_hosts` are already in
+   place. A repository whose directory already exists is skipped, and one that
+   fails to clone (no access, wrong name) is logged and skipped as well —
+   neither stops the others. Boot provisioning reruns the step on every start,
+   so it also picks up repositories added to the setting later.
+
+5. Get in:
 
    ```sh
    limactl shell myvm
@@ -116,7 +141,7 @@ release.
    ssh -F ~/.lima/myvm/ssh.config lima-myvm
    ```
 
-5. Check what exists — name, Lima status, size, guest IP, SSH hostname:
+6. Check what exists — name, Lima status, size, guest IP, SSH hostname:
 
    ```sh
    go run . list
@@ -135,7 +160,7 @@ release.
    curl http://192.168.64.26:3000
    ```
 
-6. One VM in detail — the same fields plus the dotfiles repo, key path and
+7. One VM in detail — the same fields plus the dotfiles repo, key path and
    creation time. The name defaults to `default`:
 
    ```sh
@@ -151,7 +176,7 @@ release.
    A VM that is not running, or that does not answer within the 5 s deadline,
    prints an empty line and exits 0.
 
-7. Stop and start it. A host reboot leaves every VM stopped; `start` boots it
+8. Stop and start it. A host reboot leaves every VM stopped; `start` boots it
    again, re-running provisioning and the readiness probes:
 
    ```sh
@@ -162,7 +187,7 @@ release.
    `stop -force` kills the VM instead of shutting the guest down gracefully —
    faster, but unwritten guest data is lost.
 
-8. Throw it away (deletes the VM, the GitHub key and the local key pair). It
+9. Throw it away (deletes the VM, the GitHub key and the local key pair). It
    asks first — type the VM name back to go ahead, anything else aborts:
 
    ```sh
@@ -485,7 +510,9 @@ user), then readiness probes gate `limactl start`.
    setting itself), the neovim installer `neovim-system.sh` runs and the
    operator reruns to upgrade (`/usr/local/lib/dev-vm/install-neovim`), and the
    `my-ip` helper (`/usr/local/bin/my-ip`, prints the guest IP from inside the
-   VM).
+   VM), and the repository list `clone-user.sh` reads
+   (`/usr/local/lib/dev-vm/clone-list`, rendered by `devvm create` from the
+   `clone` setting).
 2. **`firewall-system.sh`** — keeps the guest network open, first of the system
    scripts: installs `nftables` when missing, deletes the `inet/ip/ip6 filter`
    tables (never `nft flush ruleset` — Lima's `table ip nat` carries the
@@ -556,6 +583,11 @@ user), then readiness probes gate `limactl start`.
    entry from `lima/dev-vm.yaml` and recreate to fall back to slirp4netns.
 17. **`mise-user.sh`** — activates mise in `~/.zshrc` (unless the oh-my-zsh
    mise plugin already does), `mise trust --all`, `mise install`.
+18. **`clone-user.sh`** — clones the repositories from the `clone` setting into
+   `<basedir>/<repo>`, last so the ssh key, `known_hosts` and git are all in
+   place. `${HOME}` in `basedir` expands here, in the guest. An existing
+   directory is skipped and a failing clone is logged and skipped, so neither
+   holds up the rest.
 
 ```mermaid
 flowchart TD
@@ -566,6 +598,7 @@ flowchart TD
         d4["install-neovim<br>neovim tarball installer<br>(boot + manual upgrade)"]
         d5["my-ip<br>prints the guest IP"]
         d6["sysctl.d/99-dev-vm.conf<br>unprivileged ports from 0,<br>ping_group_range"]
+        d7["clone-list<br>repositories to clone<br>(from the clone setting)"]
     end
 
     subgraph system["system scripts (root)"]
@@ -588,6 +621,7 @@ flowchart TD
         u3["dotfiles.sh<br>check out dotfiles over $HOME"]
         u4["docker-user.sh<br>set up rootless Docker daemon<br>(pasta networking)"]
         u5["mise-user.sh<br>trust config, install tools"]
+        u6["clone-user.sh<br>clone the repositories from<br>the clone setting"]
     end
 
     subgraph probes["readiness probes"]
@@ -598,6 +632,6 @@ flowchart TD
     data --> system
     s0 --> s0b --> s1 --> s1b --> s1c --> s2 --> s3 --> s4 --> s4b --> s5
     system --> user
-    u1 --> u1b --> u2 --> u3 --> u4 --> u5
+    u1 --> u1b --> u2 --> u3 --> u4 --> u5 --> u6
     user --> probes
 ```

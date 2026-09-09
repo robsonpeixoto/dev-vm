@@ -114,6 +114,18 @@ provision:
     owner: "root:root"
     permissions: "755"
     overwrite: true
+  # Repositories to clone in the guest, from the "clone" entry of
+  # ~/.config/dev-vm/settings.json. devvm create renders one
+  # "<basedir>\t<org>/<repo>" line per repository into the temp tree it starts
+  # from; with the setting absent the file holds only its comment header and
+  # clone-user.sh does nothing.
+  - mode: data
+    file:
+      url: tmp/clone-list
+    path: /usr/local/lib/dev-vm/clone-list
+    owner: "root:root"
+    permissions: "644"
+    overwrite: true
   # First system script: the guest must be reachable on every port at its own IP
   # before anything else configures itself.
   - mode: system
@@ -173,6 +185,11 @@ provision:
   - mode: user
     file:
       url: scripts/mise-user.sh
+  # Last user script: cloning needs the ssh key, known_hosts and git that the
+  # steps above put in place.
+  - mode: user
+    file:
+      url: scripts/clone-user.sh
 probes:
   - mode: readiness
     description: rootless docker daemon is up

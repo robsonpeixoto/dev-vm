@@ -5,6 +5,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 )
 
@@ -108,4 +110,70 @@ func withSettings(t *testing.T, content string) {
 	old := settingsFile
 	settingsFile = path
 	t.Cleanup(func() { settingsFile = old })
+}
+
+func TestSettingsClones(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		settings string
+		want     []cloneRepo
+	}{
+		{
+			name: "no settings",
+		},
+		{
+			name:     "unrelated settings",
+			settings: `{"cpus": 4}`,
+		},
+		{
+			name: "one group, two repositories",
+			settings: `{"clone": [{"org": "robsonpeixoto",
+				"basedir": "${HOME}/Code/robsonpeixoto",
+				"repositories": ["dev-vm", "echo-server"]}]}`,
+			want: []cloneRepo{
+				{basedir: "${HOME}/Code/robsonpeixoto", repo: "robsonpeixoto/dev-vm"},
+				{basedir: "${HOME}/Code/robsonpeixoto", repo: "robsonpeixoto/echo-server"},
+			},
+		},
+		{
+			name: "two groups",
+			settings: `{"clone": [
+				{"org": "one", "basedir": "/srv/one", "repositories": ["a"]},
+				{"org": "two", "basedir": "/srv/two", "repositories": ["b"]}]}`,
+			want: []cloneRepo{
+				{basedir: "/srv/one", repo: "one/a"},
+				{basedir: "/srv/two", repo: "two/b"},
+			},
+		},
+		{
+			name:     "group without repositories",
+			settings: `{"clone": [{"org": "one", "basedir": "/srv/one", "repositories": []}]}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withSettings(t, tc.settings)
+			got := settingsClones()
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("settingsClones() = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCloneList(t *testing.T) {
+	clones := []cloneRepo{
+		{basedir: "${HOME}/Code/robsonpeixoto", repo: "robsonpeixoto/dev-vm"},
+		{basedir: "/srv/one", repo: "one/a"},
+	}
+	got := cloneList(clones)
+	want := "${HOME}/Code/robsonpeixoto\trobsonpeixoto/dev-vm\n/srv/one\tone/a\n"
+	if !strings.HasSuffix(got, want) {
+		t.Errorf("cloneList() = %q, want it to end with %q", got, want)
+	}
+	if !strings.HasPrefix(got, "#") {
+		t.Errorf("cloneList() = %q, want a comment header keeping the file non-empty", got)
+	}
+	if empty := cloneList(nil); !strings.HasPrefix(empty, "#") || strings.Count(empty, "\n") != 1 {
+		t.Errorf("cloneList(nil) = %q, want only the comment header", empty)
+	}
 }

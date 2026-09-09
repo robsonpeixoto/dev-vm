@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -32,6 +33,9 @@ Usage: devvm create [name] [-create-ssh-key=false] [-dotfiles REPO|-no-dotfiles]
   GiB. The "cpus", "memory" and "disk" entries in
   ~/.config/dev-vm/settings.json change the defaults for every VM. Size is
   fixed at create time — resizing means delete and create again.
+- Clones the repositories listed under "clone" in
+  ~/.config/dev-vm/settings.json as the last user provisioning step; a
+  repository already present in the guest is skipped.
 - Records VM metadata (GitHub key id, key paths) in ~/.config/dev-vm/state.json.
 
 `
@@ -44,6 +48,13 @@ type resources struct {
 }
 
 var defaultResources = resources{cpus: 2, memory: 2, disk: 50}
+
+// cloneRepo is one repository the guest clones, with the directory it goes
+// under. repo is "<org>/<name>".
+type cloneRepo struct {
+	basedir string
+	repo    string
+}
 
 func cmdCreate(argv []string) {
 	fs := flag.NewFlagSet("create", flag.ExitOnError)
@@ -70,6 +81,7 @@ func cmdCreate(argv []string) {
 	checkName(name)
 	checkResources(res)
 	dotfiles := resolveDotfiles(dotfilesRepo, noDotfiles)
+	clones := settingsClones()
 	if vmExists(name) {
 		die("VM %q already exists; run: devvm delete %s", name, name)
 	}
@@ -97,8 +109,11 @@ func cmdCreate(argv []string) {
 	if dotfiles != "" {
 		fmt.Printf("installing dotfiles from %s\n", dotfiles)
 	}
+	if len(clones) > 0 {
+		fmt.Printf("cloning %d repositories\n", len(clones))
+	}
 	fmt.Printf("VM size %d vCPU, %dGiB RAM, %dGiB disk\n", res.cpus, res.memory, res.disk)
-	startVM(name, dotfiles, res, key)
+	startVM(name, dotfiles, res, key, clones)
 	putVM(name, map[string]any{
 		"template":    "embedded:lima/dev-vm.yaml",
 		"started_at":  now(),
@@ -143,6 +158,55 @@ func resolveDotfiles(repo string, noDotfiles bool) string {
 		checkRepo(repo)
 	}
 	return repo
+}
+
+// settingsClones reads the "clone" entry of settings.json — a list of
+// {"org", "basedir", "repositories"} objects — and flattens it to one entry
+// per repository.
+func settingsClones() []cloneRepo {
+	value, ok := loadSettings()["clone"]
+	if !ok {
+		return nil
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		die("settings %s: cannot read \"clone\": %v", settingsFile, err)
+	}
+	var groups []struct {
+		Org          string   `json:"org"`
+		Basedir      string   `json:"basedir"`
+		Repositories []string `json:"repositories"`
+	}
+	if err := json.Unmarshal(data, &groups); err != nil {
+		die("settings %s: \"clone\" must be a list of {org, basedir, repositories} objects", settingsFile)
+	}
+	var clones []cloneRepo
+	for _, g := range groups {
+		if !ghNameRE.MatchString(g.Org) {
+			die("settings %s: invalid clone org %q", settingsFile, g.Org)
+		}
+		if !basedirRE.MatchString(g.Basedir) {
+			die("settings %s: invalid clone basedir %q", settingsFile, g.Basedir)
+		}
+		for _, name := range g.Repositories {
+			if !ghNameRE.MatchString(name) {
+				die("settings %s: invalid clone repository %q", settingsFile, name)
+			}
+			clones = append(clones, cloneRepo{basedir: g.Basedir, repo: g.Org + "/" + name})
+		}
+	}
+	return clones
+}
+
+// cloneList renders the guest-side list clone-user.sh reads: one
+// "<basedir>\t<org>/<repo>" line per repository. The header keeps the file
+// non-empty when nothing is configured.
+func cloneList(clones []cloneRepo) string {
+	list := "# <basedir>\t<org>/<repo>, from the \"clone\" entry of settings.json\n"
+	for _, c := range clones {
+		list += fmt.Sprintf("%s\t%s\n", c.basedir, c.repo)
+	}
+	return list
 }
 
 // settingsResources: settings.json overrides the built-in defaults; the result
@@ -224,7 +288,7 @@ func registerKey(name, title, pub string) int64 {
 // startVM materializes the embedded template tree into a temp directory —
 // limactl resolves provision file.url paths relative to the template — drops
 // the private key at tmp/default where the template expects it, and boots.
-func startVM(name, dotfiles string, res resources, key string) {
+func startVM(name, dotfiles string, res resources, key string, clones []cloneRepo) {
 	dir, err := os.MkdirTemp("", "dev-vm-")
 	if err != nil {
 		die("cannot create temp dir: %v", err)
@@ -257,6 +321,9 @@ func startVM(name, dotfiles string, res resources, key string) {
 		die("cannot materialize template: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "tmp", "default"), keyData, 0o600); err != nil {
+		die("cannot materialize template: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "tmp", "clone-list"), []byte(cloneList(clones)), 0o600); err != nil {
 		die("cannot materialize template: %v", err)
 	}
 

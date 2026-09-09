@@ -3,7 +3,8 @@
 // All external work goes through command line tools: limactl and gh.
 // VM metadata lives in a JSON state file under ~/.config/dev-vm, alongside an
 // optional user-written settings.json holding defaults such as the dotfiles
-// repo and the VM size. SSH key pairs are kept in ~/.config/dev-vm/keys.
+// repo, the VM size and the repositories to clone. SSH key pairs are kept in
+// ~/.config/dev-vm/keys.
 package main
 
 import (
@@ -32,6 +33,11 @@ var (
 
 	nameRE = regexp.MustCompile(`^[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*$`)
 	repoRE = regexp.MustCompile(`^[A-Za-z0-9@:._/+~-]+$`)
+	// GitHub org and repository names, for the "clone" setting.
+	ghNameRE = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+	// Clone target directories: absolute or $HOME-relative paths, no spaces
+	// and no shell metacharacters beyond the ${HOME} the guest expands.
+	basedirRE = regexp.MustCompile(`^[A-Za-z0-9${}/._~-]+$`)
 )
 
 func homeDir() string {

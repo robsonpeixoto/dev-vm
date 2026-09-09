@@ -265,6 +265,33 @@ Empty param means the script exits 0 without doing anything.
   default and `git@github.com` supplies the user — but `IdentitiesOnly yes` is
   not in effect.
 
+### Repository clones
+
+`clone` in `~/.config/dev-vm/settings.json` lists repositories to clone in the
+guest, grouped per GitHub org:
+
+```json
+{"clone": [{"org": "robsonpeixoto", "basedir": "${HOME}/Code/robsonpeixoto",
+            "repositories": ["dev-vm", "echo-server"]}]}
+```
+
+- `settingsClones` (`create.go`) validates and flattens it to one
+  `{basedir, org/repo}` entry per repository; `cloneList` renders the guest
+  list, tab-separated, one line per repository behind a comment header. The
+  header is not decoration: it keeps the file non-empty when nothing is
+  configured, since the `mode: data` entry for it is unconditional.
+- `startVM` writes it to `tmp/clone-list` in the materialized template tree —
+  the same trick as the private key at `tmp/default` — and `mode: data` stages
+  it at `/usr/local/lib/dev-vm/clone-list`.
+- `scripts/clone-user.sh` is the **last** `user` script: cloning needs the
+  provisioned key, `known_hosts` and git from the steps before it. It expands
+  `${HOME}`/`$HOME` in `basedir` in the guest (the host cannot: that path is
+  the guest home), skips a repository whose `<basedir>/<repo>` already exists,
+  and logs-and-skips one that fails to clone so a single unreachable repo does
+  not take the rest down.
+- No flag configures this; the setting is the only input, and it is read at
+  create time like everything else in the template.
+
 ### VM size
 
 `cpus`, `memory` and `disk` are **top-level template fields**, not params, so
