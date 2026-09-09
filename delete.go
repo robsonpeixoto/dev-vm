@@ -71,7 +71,7 @@ func cmdDelete(argv []string) {
 func confirmDelete(name string, in io.Reader, out io.Writer) error {
 	fmt.Fprintf(out, "This deletes VM %q, its disk and everything in it, "+
 		"its GitHub key and the local key pair.\n", name)
-	fmt.Fprintf(out, "Type %s to confirm: ", name)
+	fmt.Fprintf(out, "Type %q to confirm: ", name)
 	answer, err := bufio.NewReader(in).ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
 		return fmt.Errorf("cannot read confirmation: %v", err)

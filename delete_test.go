@@ -29,14 +29,14 @@ func TestConfirmDelete(t *testing.T) {
 	}
 }
 
-// TestConfirmDeletePrompt: the prompt has to name the VM, since typing that
-// name is what the user is being asked for.
+// TestConfirmDeletePrompt: the prompt has to name the VM, quoted, so the name
+// to type back is unmistakable — typing it is what the user is being asked for.
 func TestConfirmDeletePrompt(t *testing.T) {
 	var out strings.Builder
 	if err := confirmDelete("myvm", strings.NewReader("myvm\n"), &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "myvm") {
-		t.Errorf("prompt %q does not name the VM", out.String())
+	if !strings.Contains(out.String(), `Type "myvm" to confirm`) {
+		t.Errorf("prompt %q does not name the VM in quotes", out.String())
 	}
 }
