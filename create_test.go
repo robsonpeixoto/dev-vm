@@ -254,3 +254,63 @@ func TestCloneList(t *testing.T) {
 		t.Errorf("cloneList(nil) = %q, want only the comment header", empty)
 	}
 }
+
+func TestMkcertEnabled(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		settings string
+		vm       string
+		want     bool
+	}{
+		{
+			name: "no settings",
+			vm:   "myvm",
+		},
+		{
+			name:     "default block",
+			settings: `{"default": {"mkcert": true}}`,
+			vm:       "myvm",
+			want:     true,
+		},
+		{
+			name:     "vm block turns mkcert off",
+			settings: `{"default": {"mkcert": true}, "vms": {"myvm": {"mkcert": false}}}`,
+			vm:       "myvm",
+		},
+		{
+			name:     "vm block turns mkcert on",
+			settings: `{"vms": {"myvm": {"mkcert": true}}}`,
+			vm:       "myvm",
+			want:     true,
+		},
+		{
+			name:     "vm block applies to its own VM only",
+			settings: `{"vms": {"other": {"mkcert": true}}}`,
+			vm:       "myvm",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withSettings(t, tc.settings)
+			if got := mkcertEnabled(loadSettings(tc.vm)); got != tc.want {
+				t.Errorf("mkcertEnabled() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestStartSet(t *testing.T) {
+	res := resources{cpus: 4, memory: 8, disk: 100}
+	got := startSet(res, "git@github.com:user/dotfiles.git", "")
+	want := `.cpus = 4 | .memory = "8GiB" | .disk = "100GiB" | .param.DOTFILES_REPO = "git@github.com:user/dotfiles.git"`
+	if got != want {
+		t.Errorf("startSet() = %q, want %q", got, want)
+	}
+	// The CA path is the host one, quoted: the default CAROOT on macOS has a
+	// space in it.
+	got = startSet(res, "", "/Users/x/Library/Application Support/mkcert")
+	want += ` | .caCerts.files = ["/Users/x/Library/Application Support/mkcert/rootCA.pem"]`
+	want = strings.Replace(want, `"git@github.com:user/dotfiles.git"`, `""`, 1)
+	if got != want {
+		t.Errorf("startSet() with a CAROOT = %q, want %q", got, want)
+	}
+}

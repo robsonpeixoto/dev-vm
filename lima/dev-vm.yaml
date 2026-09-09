@@ -126,6 +126,26 @@ provision:
     owner: "root:root"
     permissions: "644"
     overwrite: true
+  # mkcert root CA, staged for mkcert-user.sh to install into the guest CAROOT.
+  # devvm create writes both files into the temp tree it starts from — from the
+  # host `mkcert -CAROOT` with "mkcert": true in settings.json, empty
+  # otherwise — and adds the host rootCA.pem to caCerts.files so cloud-init
+  # trusts it system-wide. The key is owned by the guest user: the user script
+  # that installs it cannot read a root-only file.
+  - mode: data
+    file:
+      url: tmp/rootCA.pem
+    path: /usr/local/lib/dev-vm/rootCA.pem
+    owner: "root:root"
+    permissions: "644"
+    overwrite: true
+  - mode: data
+    file:
+      url: tmp/rootCA-key.pem
+    path: /usr/local/lib/dev-vm/rootCA-key.pem
+    owner: "{{.User}}"
+    permissions: "600"
+    overwrite: true
   # First system script: the guest must be reachable on every port at its own IP
   # before anything else configures itself.
   - mode: system
@@ -185,6 +205,11 @@ provision:
   - mode: user
     file:
       url: scripts/mise-user.sh
+  # After mise-user.sh: mkcert itself usually comes from mise, so by now the
+  # binary can answer `mkcert -CAROOT`.
+  - mode: user
+    file:
+      url: scripts/mkcert-user.sh
   # Last user script: cloning needs the ssh key, known_hosts and git that the
   # steps above put in place.
   - mode: user

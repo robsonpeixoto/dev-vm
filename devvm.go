@@ -3,8 +3,8 @@
 // All external work goes through command line tools: limactl and gh.
 // VM metadata lives in a JSON state file under ~/.config/dev-vm, alongside an
 // optional user-written settings.json holding a "default" block — the dotfiles
-// repo, the VM size, the repositories to clone — and per-VM overrides of it
-// under "vms". SSH key pairs are kept in ~/.config/dev-vm/keys.
+// repo, the VM size, the repositories to clone, the mkcert CA — and per-VM
+// overrides of it under "vms". SSH key pairs are kept in ~/.config/dev-vm/keys.
 package main
 
 import (
@@ -104,6 +104,7 @@ type vmConfig struct {
 	Disk     *int          `json:"disk"`
 	Dotfiles *string       `json:"dotfiles"`
 	Clone    *[]cloneGroup `json:"clone"`
+	Mkcert   *bool         `json:"mkcert"`
 }
 
 // cloneGroup is one "clone" entry: repositories of a single GitHub org, all
@@ -162,6 +163,9 @@ func mergeConfig(base, over vmConfig) vmConfig {
 	}
 	if over.Clone != nil {
 		base.Clone = over.Clone
+	}
+	if over.Mkcert != nil {
+		base.Mkcert = over.Mkcert
 	}
 	return base
 }

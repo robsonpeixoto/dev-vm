@@ -1,10 +1,12 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -24,7 +26,7 @@ Usage: devvm create [name] [-create-ssh-key=false] [-dotfiles REPO|-no-dotfiles]
   private key and ssh config into the guest, and provisioning fetches
   known_hosts.
 - Reads ~/.config/dev-vm/settings.json for the "dotfiles", "cpus", "memory",
-  "disk" and "clone" keys: the "default" block applies to every VM, and
+  "disk", "clone" and "mkcert" keys: the "default" block applies to every VM, and
   "vms".<name> overrides it key by key for this one.
 - With dotfiles enabled, provisioning clones the bare repo to ~/.dotfiles in
   the guest and checks it out over $HOME. The repo comes from -dotfiles or
@@ -35,6 +37,10 @@ Usage: devvm create [name] [-create-ssh-key=false] [-dotfiles REPO|-no-dotfiles]
   and create again.
 - Clones the repositories listed under "clone" as the last user provisioning
   step; a repository already present in the guest is skipped.
+- With "mkcert": true in the settings, copies the host mkcert root CA
+  (rootCA.pem and rootCA-key.pem from mkcert -CAROOT) into the guest CAROOT
+  and trusts rootCA.pem in the guest system store through the template's
+  caCerts.files.
 - Records VM metadata (GitHub key id, key paths) in ~/.config/dev-vm/state.json.
 
 `
@@ -47,6 +53,10 @@ type resources struct {
 }
 
 var defaultResources = resources{cpus: 2, memory: 2, disk: 50}
+
+// caFiles are the mkcert root CA files copied from the host CAROOT into the
+// guest one. The key comes along so the guest can issue its own certificates.
+var caFiles = []string{"rootCA.pem", "rootCA-key.pem"}
 
 // cloneRepo is one repository the guest clones, with the directory it goes
 // under. repo is "<org>/<name>".
@@ -85,6 +95,7 @@ func cmdCreate(argv []string) {
 	checkResources(res)
 	dotfiles := resolveDotfiles(dotfilesRepo, noDotfiles, config)
 	clones := settingsClones(config)
+	caroot := resolveCAROOT(config)
 	if vmExists(name) {
 		die("VM %q already exists; run: devvm delete %s", name, name)
 	}
@@ -115,8 +126,11 @@ func cmdCreate(argv []string) {
 	if len(clones) > 0 {
 		fmt.Printf("cloning %d repositories\n", len(clones))
 	}
+	if caroot != "" {
+		fmt.Printf("copying the mkcert root CA from %s\n", caroot)
+	}
 	fmt.Printf("VM size %d vCPU, %dGiB RAM, %dGiB disk\n", res.cpus, res.memory, res.disk)
-	startVM(name, dotfiles, res, key, clones)
+	startVM(name, dotfiles, res, key, clones, caroot)
 	putVM(name, map[string]any{
 		"template":    "embedded:lima/dev-vm.yaml",
 		"started_at":  now(),
@@ -161,6 +175,42 @@ func resolveDotfiles(repo string, noDotfiles bool, config vmConfig) string {
 		checkRepo(repo)
 	}
 	return repo
+}
+
+// resolveCAROOT returns the host mkcert CA directory when the "mkcert" setting
+// is on, and "" otherwise.
+func resolveCAROOT(config vmConfig) string {
+	if !mkcertEnabled(config) {
+		return ""
+	}
+	return hostCAROOT()
+}
+
+func mkcertEnabled(config vmConfig) bool {
+	return config.Mkcert != nil && *config.Mkcert
+}
+
+// hostCAROOT asks mkcert where its CA lives and checks both files are there;
+// the settings asked for the CA, so a missing one is an error rather than a
+// silent skip.
+func hostCAROOT() string {
+	out, err := exec.Command("mkcert", "-CAROOT").Output()
+	if err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			die("mkcert not found; install it or unset \"mkcert\" in %s", settingsFile)
+		}
+		die("mkcert -CAROOT failed: %v", err)
+	}
+	caroot := strings.TrimSpace(string(out))
+	if caroot == "" {
+		die("mkcert -CAROOT printed nothing")
+	}
+	for _, f := range caFiles {
+		if !fileExists(filepath.Join(caroot, f)) {
+			die("no %s in %s; run: mkcert -install", f, caroot)
+		}
+	}
+	return caroot
 }
 
 // settingsClones flattens the "clone" setting to one entry per repository.
@@ -291,7 +341,7 @@ func registerKey(name, title, pub string) int64 {
 // startVM materializes the embedded template tree into a temp directory —
 // limactl resolves provision file.url paths relative to the template — drops
 // the private key at tmp/default where the template expects it, and boots.
-func startVM(name, dotfiles string, res resources, key string, clones []cloneRepo) {
+func startVM(name, dotfiles string, res resources, key string, clones []cloneRepo, caroot string) {
 	dir, err := os.MkdirTemp("", "dev-vm-")
 	if err != nil {
 		die("cannot create temp dir: %v", err)
@@ -329,10 +379,36 @@ func startVM(name, dotfiles string, res resources, key string, clones []cloneRep
 	if err := os.WriteFile(filepath.Join(dir, "tmp", "clone-list"), []byte(cloneList(clones)), 0o600); err != nil {
 		die("cannot materialize template: %v", err)
 	}
+	// The mkcert CA files are staged the same way, empty when the setting is
+	// off: their `mode: data` entries are unconditional, and mkcert-user.sh
+	// skips an empty file.
+	for _, f := range caFiles {
+		var data []byte
+		if caroot != "" {
+			data, err = os.ReadFile(filepath.Join(caroot, f))
+			if err != nil {
+				die("cannot read %s: %v", filepath.Join(caroot, f), err)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(dir, "tmp", f), data, 0o600); err != nil {
+			die("cannot materialize template: %v", err)
+		}
+	}
 
 	limactlRun("start", "--tty=false", "--name", name,
-		"--set", fmt.Sprintf(
-			`.cpus = %d | .memory = "%dGiB" | .disk = "%dGiB" | .param.DOTFILES_REPO = %q`,
-			res.cpus, res.memory, res.disk, dotfiles),
+		"--set", startSet(res, dotfiles, caroot),
 		filepath.Join(dir, "dev-vm.yaml"))
+}
+
+// startSet is the yq expression patching the template at creation time. The
+// caCerts entry points at the host CAROOT, not at the temp tree: the hostagent
+// re-reads it every time the instance starts, long after that tree is gone.
+func startSet(res resources, dotfiles, caroot string) string {
+	set := fmt.Sprintf(
+		`.cpus = %d | .memory = "%dGiB" | .disk = "%dGiB" | .param.DOTFILES_REPO = %q`,
+		res.cpus, res.memory, res.disk, dotfiles)
+	if caroot != "" {
+		set += fmt.Sprintf(` | .caCerts.files = [%q]`, filepath.Join(caroot, "rootCA.pem"))
+	}
+	return set
 }
