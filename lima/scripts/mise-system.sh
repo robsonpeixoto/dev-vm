@@ -1,7 +1,7 @@
 #!/bin/sh
 # Installs mise (https://mise.jdx.dev) from its official apt repo. Runs as
 # root on every boot, so it must be idempotent: once mise is installed the
-# whole block is skipped and upgrades are cron's job (12-update-mise). Tool
+# whole block is skipped; upgrading mise is a manual apt-get upgrade. Tool
 # trust/install happens per-user in mise-user.sh.
 set -eux
 

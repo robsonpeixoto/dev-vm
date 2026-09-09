@@ -3,7 +3,7 @@
 # (https://launchpad.net/~git-core/+archive/ubuntu/ppa), which tracks upstream
 # releases — Ubuntu's archive git only ever gets security fixes. Runs as root
 # on every boot, so it must be idempotent: once the PPA and git are in place
-# the whole block is skipped and upgrades are cron's job (11-update-git).
+# the whole block is skipped; upgrading git is a manual apt-get upgrade.
 set -eux
 
 export DEBIAN_FRONTEND=noninteractive

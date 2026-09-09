@@ -28,9 +28,9 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      # ubuntu-latest ships shellcheck; the cron files carry a #!/bin/sh
+      # ubuntu-latest ships shellcheck; every file here carries a #!/bin/sh
       # shebang, so no -s is needed to pick the dialect.
-      - run: shellcheck lima/scripts/*.sh lima/files/*.sh lima/files/dev-vm-cron lima/files/install-neovim lima/files/cron.d/*
+      - run: shellcheck lima/scripts/*.sh lima/files/*.sh lima/files/install-neovim
       # The bash completion has no shebang, so name the dialect. dev-vm.zsh and
       # dev-vm.fish are dialects shellcheck does not support.
       - run: shellcheck -s bash completions/dev-vm.bash

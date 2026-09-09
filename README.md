@@ -256,8 +256,8 @@ The zsh script needs `compinit` to have run first. Names come from the hidden
 `.github/workflows/ci.yml` runs `make check-format-go`, `go vet`, `go build` and
 `go test` on every push to `main` and every pull request, plus a parallel
 `shell` job over every shell file in the repo: `shellcheck` on
-`lima/scripts/*.sh`, `lima/files/*.sh`, `lima/files/dev-vm-cron`,
-`lima/files/install-neovim`, `lima/files/cron.d/*` and `completions/dev-vm.bash`
+`lima/scripts/*.sh`, `lima/files/*.sh`, `lima/files/install-neovim` and
+`completions/dev-vm.bash`
 (zsh and fish are dialects shellcheck does not support), then
 `make check-format-shell`.
 
@@ -372,83 +372,71 @@ Every new LTS has to pass all three on that fresh create:
   `limactl shell pinbump ssh -T git@github.com` reporting
   `successfully authenticated`.
 
-## Staying patched
+## Upgrading the guest
 
-One scheduler, `dev-vm-cron`, every 6 hours. It runs
-`/usr/local/lib/dev-vm/cron.d/*` in name order under `flock`, so the whole
-VM's apt traffic is serialized and no job needs a dpkg lock timeout.
-`unattended-upgrades-system.sh` **masks** `apt-daily.timer` and
-`apt-daily-upgrade.timer` to keep it that way: they fire in a randomized window
-(12 hours wide for `apt-daily`) and `Persistent=true` makes a missed run fire
-right after a VM start, next to boot provisioning — a second apt scheduler is
-the whole reason lock races happen.
+**Nothing upgrades itself.** The VM installs what it needs on the first boot
+and then holds still: no cron, no `unattended-upgrades`, no apt-daily timers.
+A workspace that changes versions on its own is a workspace whose breakage is
+impossible to date, and a patch landing next to boot provisioning is a dpkg
+lock race.
 
-The jobs, in the order they run:
+Two pieces enforce it, both applied on every boot:
 
-- **`05-upgrade-security`** — `apt-get update`, then `unattended-upgrade` under
-  the policy in `/etc/apt/apt.conf.d/52dev-vm-unattended-upgrades`: **security
-  pockets only** (`-security`, plus the two ESM ones), never reboots on its own,
-  unused kernels and dependencies cleaned up. A pending kernel takes effect on
-  the next VM restart. Its `apt-get update` is the only apt call that retries —
-  the lists lock is a non-blocking `F_SETLK`, so it has no built-in wait,
-  unlike the dpkg lock (`Dpkg::Lock::Timeout`, which apt already defaults to
-  120 s whenever stdin is not a tty).
-- **`10-update-docker`** — Docker's apt repo publishes no security suite for
-  `Unattended-Upgrade::Allowed-Origins` to match; folding it in would mean
-  allowing the whole Docker origin, which is a feature-version upgrade, not a
-  security one.
-- **`11-update-git`** — git comes from the git-core PPA (upstream releases,
-  not just Ubuntu's security-patched snapshot), and the PPA publishes no
-  security suite either, so this job carries its upgrades.
-- **`12-update-mise`** — same story as Docker: mise's apt repo publishes no
-  security suite, so the security-only policy never touches it and this job
-  carries its upgrades.
-- **`15-update-neovim`** — neovim is not an apt package at all (official
-  release tarball), so no apt updater can reach it;
-  `/usr/local/lib/dev-vm/install-neovim` compares the installed version against
-  the latest release and exits when they match. The job also upgrades the plugin
-  build toolchain — `tree-sitter-cli`, `build-essential`, `luarocks`, `luajit`
-  and `cargo`: those *are* apt packages, but the security-only policy never
-  touches `universe` and only ever ships `build-essential` security fixes.
-- **`20-prune-docker`** — weekly, see [disk hygiene](#disk-hygiene).
+- `/etc/apt/apt.conf.d/99dev-vm-no-auto-upgrades` — every `APT::Periodic` key
+  set to `0`, read after the packaged `20auto-upgrades`.
+- `no-auto-upgrades-system.sh` — **masks** `apt-daily.timer`,
+  `apt-daily-upgrade.timer`, their services and `unattended-upgrades.service`.
+  Masked, not disabled: a package upgrade can re-enable a disabled unit, and a
+  masked one cannot be started even while it is enabled.
 
-`10-`, `11-`, `12-` and `15-` do not run their own `apt-get update`: `05-`
-refreshed the lists seconds earlier in the same tick.
-
-Check the policy from inside the guest:
+Upgrading is a deliberate command. Everything apt-installed — the OS,
+Docker, git (git-core PPA), Go (longsleep PPA), mise, zsh and the neovim build
+toolchain — comes from one call:
 
 ```sh
-limactl shell <name> sudo unattended-upgrade --dry-run --debug
-limactl shell <name> systemctl is-enabled apt-daily.timer apt-daily-upgrade.timer
-limactl shell <name> sudo dev-vm-cron
+limactl shell <name> sudo apt-get update
+limactl shell <name> sudo apt-get upgrade
 ```
+
+neovim is not an apt package (official release tarball), so it has its own
+installer, the same one boot provisioning runs. It resolves the latest release,
+compares it with the installed binary and does nothing when they match:
+
+```sh
+limactl shell <name> sudo /usr/local/lib/dev-vm/install-neovim
+```
+
+A kernel upgrade takes effect on the next restart
+(`go run . stop <name> && go run . start <name>`). Confirm nothing is
+scheduled behind your back:
+
+```sh
+limactl shell <name> systemctl is-enabled apt-daily.timer apt-daily-upgrade.timer
+limactl shell <name> ls /etc/cron.d
+```
+
+The VM is cheap to replace, so the other upgrade path is
+`go run . destroy <name> && go run . create <name>`: a fresh create installs
+current versions of everything.
 
 ## Disk hygiene
 
 The disk defaults to 50 GiB, and Docker images plus build cache are what fill
-it. A weekly prune is **on by default**:
-`/usr/local/lib/dev-vm/cron.d/20-prune-docker`, run by `dev-vm-cron` like the
-Docker updater. Because that runner ticks every 6 hours, the job stamps
-`/var/lib/dev-vm/docker-prune.stamp` and returns early until the stamp is a
-week old.
+it. Nothing prunes them on a schedule — no cron runs in this VM — so reclaiming
+space is a command you run when the disk gets tight:
 
 ```sh
-docker system prune -af --filter "until=168h"
+limactl shell <name> docker system prune -af --filter "until=168h"
 ```
 
 - Removes stopped containers, unused images, unused networks and build cache
-  older than a week. **Volumes are never touched** — no `--volumes` — so
+  older than a week. **Volumes are never touched** without `--volumes`, so
   database and cache data survives.
 - `until` filters on *creation* time, not last use, so an unused base image
   built months ago goes on the first run. Anything a running container uses
   stays.
-- Docker is rootless, so the daemon is the login user's, on
-  `/run/user/<uid>/docker.sock`. Cron runs as root and resolves that user from
-  the socket path, so it prunes the same daemon `docker` talks to in a shell.
-- Don't want it: delete the file in the guest
-  (`sudo rm /usr/local/lib/dev-vm/cron.d/20-prune-docker`) — but provisioning
-  reinstalls it on the next boot, so drop the `mode: data` entry from
-  `lima/dev-vm.yaml` and recreate the VM to turn it off for good.
+- Drop the filter (`docker system prune -af`) to take everything unused, or
+  `docker builder prune -af` for the build cache alone.
 
 Lima reports the disk *size*, not its usage, so `go run . list` cannot show how
 full it is. Ask the guest:
@@ -456,13 +444,6 @@ full it is. Ask the guest:
 ```sh
 limactl shell <name> docker system df     # -v for a per-image breakdown
 limactl shell <name> df -h /
-```
-
-Reclaim space now, without waiting for the cron tick:
-
-```sh
-limactl shell <name> docker system prune -af    # images + build cache
-limactl shell <name> docker builder prune -af   # build cache only
 ```
 
 Resizing is the painful part: `cpus`, `memory` and `disk` are baked into
@@ -477,8 +458,8 @@ disk, never shrinks it), or `go run . destroy myvm && go run . create myvm
 
 Every step runs on **each boot** (all scripts are idempotent). The install
 scripts skip their apt and download work once everything is in place, so only
-the first boot goes to the network and restarts stay fast; upgrades are the
-cron jobs' work ([staying patched](#staying-patched)). The template
+the first boot goes to the network and restarts stay fast; nothing here
+upgrades anything ([upgrading the guest](#upgrading-the-guest)). The template
 is flattened at create time, so after editing `lima/dev-vm.yaml` or
 `lima/scripts/*.sh` the VM must be recreated.
 
@@ -490,25 +471,14 @@ user), then readiness probes gate `limactl start`.
    (`/etc/profile.d/dev-vm.sh`), the rootless-Docker pasta override
    (staged at `/usr/local/lib/dev-vm/docker-rootless-override.conf`;
    `docker-user.sh` installs it into `~/.config/systemd/user/`), the
-   unattended-upgrades policy in
-   `/etc/apt/apt.conf.d/`, the sysctls
+   no-auto-upgrade policy in
+   `/etc/apt/apt.conf.d/99dev-vm-no-auto-upgrades`, the sysctls
    (`/etc/sysctl.d/99-dev-vm.conf`: unprivileged ports from 0 and
    `net.ipv4.ping_group_range`, both of which plain mode stops Lima from
-   setting itself), and the maintenance cron: the runner
-   `/usr/local/sbin/dev-vm-cron`, its jobs
-   `/usr/local/lib/dev-vm/cron.d/05-upgrade-security`, `10-update-docker`,
-   `11-update-git`, `12-update-mise`, `15-update-neovim` and `20-prune-docker`,
-   the neovim installer those jobs and
-   `neovim-system.sh` share (`/usr/local/lib/dev-vm/install-neovim`),
-   the `my-ip` helper (`/usr/local/bin/my-ip`, prints the guest IP from inside
-   the VM), and `/etc/cron.d/dev-vm`,
-   whose single entry runs the runner every 6 hours (not at boot — the runner
-   exits until `/run/lima-boot-done` appears, so an `@reboot` line would be a
-   no-op). The runner
-   executes `/usr/local/lib/dev-vm/cron.d/*` in name order under `flock`, so
-   jobs never run in parallel or fight for the dpkg lock, and it skips a tick
-   entirely while `/run/lima-boot-done` is missing, i.e. while boot
-   provisioning still owns apt.
+   setting itself), the neovim installer `neovim-system.sh` runs and the
+   operator reruns to upgrade (`/usr/local/lib/dev-vm/install-neovim`), and the
+   `my-ip` helper (`/usr/local/bin/my-ip`, prints the guest IP from inside the
+   VM).
 2. **`firewall-system.sh`** — keeps the guest network open, first of the system
    scripts: installs `nftables` when missing, deletes the `inet/ip/ip6 filter`
    tables (never `nft flush ruleset` — Lima's `table ip nat` carries the
@@ -547,14 +517,13 @@ user), then readiness probes gate `limactl start`.
    `/usr/local/lib/dev-vm/install-neovim`, which unpacks the official
    pre-built archive into `/opt/nvim-linux-<arch>` (`x86_64` or `arm64`,
    picked from `uname -m`) and links it at `/usr/local/bin/nvim`. The same
-   installer backs the `15-update-neovim` cron job, so first boot and upgrade
-   share one code path.
-9. **`unattended-upgrades-system.sh`** — installs `unattended-upgrades` and
-   masks its `apt-daily` timers, leaving `dev-vm-cron` the only apt scheduler;
-   `cron.d/05-upgrade-security` calls the binary, so Ubuntu security updates
-   (kernel, openssl, openssh) land without anyone asking. Policy lives in
-   `/etc/apt/apt.conf.d/52dev-vm-unattended-upgrades`: security pockets only,
-   no automatic reboot, unused kernels and dependencies removed.
+   installer is also the upgrade path, so first boot and a later
+   `sudo /usr/local/lib/dev-vm/install-neovim` share one code path.
+9. **`no-auto-upgrades-system.sh`** — masks `apt-daily.timer`,
+   `apt-daily-upgrade.timer`, their services and `unattended-upgrades.service`,
+   so Ubuntu's stock automatic upgrades never fire. The matching
+   `APT::Periodic` zeros ship as the data file above; see
+   [upgrading the guest](#upgrading-the-guest).
 10. **`ssh-known-hosts.sh`** — rewrites `~/.ssh/known_hosts` from live
    `ssh-keyscan github.com` output.
 11. **`omz-user.sh`** — installs oh-my-zsh (skipped if `~/.oh-my-zsh` exists).
@@ -578,10 +547,10 @@ flowchart TD
     subgraph data["data files (copied by root)"]
         d1["~/.ssh/id_ed25519 + config + lima-github.conf<br>GitHub SSH access"]
         d2["/etc/profile.d/docker-host.sh<br>DOCKER_HOST for libraries<br>/etc/profile.d/dev-vm.sh<br>DEV_VM + DEV_VM_NAME markers"]
-        d3["apt.conf.d/52dev-vm-unattended-upgrades<br>security-only upgrade policy"]
-        d4["dev-vm-cron + cron.d/05-upgrade-security<br>+ cron.d/10-update-docker + cron.d/11-update-git<br>+ cron.d/12-update-mise + cron.d/15-update-neovim<br>+ cron.d/20-prune-docker<br>sequential jobs every 6h"]
-        d5["install-neovim<br>shared neovim tarball installer"]
-        d6["sysctl.d/99-dev-vm.conf<br>unprivileged ports from 0"]
+        d3["apt.conf.d/99dev-vm-no-auto-upgrades<br>APT::Periodic all zero"]
+        d4["install-neovim<br>neovim tarball installer<br>(boot + manual upgrade)"]
+        d5["my-ip<br>prints the guest IP"]
+        d6["sysctl.d/99-dev-vm.conf<br>unprivileged ports from 0,<br>ping_group_range"]
     end
 
     subgraph system["system scripts (root)"]
@@ -592,7 +561,7 @@ flowchart TD
         s2["zsh-system.sh<br>install zsh, set login shell,<br>hook both profile.d files into /etc/zsh/zshenv"]
         s3["mise-system.sh<br>install mise from apt repo"]
         s4["neovim-system.sh<br>install neovim from the release tarball<br>+ tree-sitter-cli, build-essential,<br>luarocks, luajit and cargo"]
-        s5["unattended-upgrades-system.sh<br>install unattended-upgrades,<br>mask its apt-daily timers"]
+        s5["no-auto-upgrades-system.sh<br>mask the apt-daily timers and<br>unattended-upgrades.service"]
     end
 
     subgraph user["user scripts (login user)"]

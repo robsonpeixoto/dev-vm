@@ -1,11 +1,11 @@
 #!/bin/sh
 # Installs neovim from the official pre-built archives
 # (https://neovim.io/doc/install/#pre-built-archives). The download and version
-# check live in /usr/local/lib/dev-vm/install-neovim (a mode: data file) so this
-# boot script and the 15-update-neovim cron job share one code path. Runs as
-# root on every boot, so it must be idempotent: once everything is installed
-# both blocks are skipped and upgrades are that cron job's work — including the
-# GitHub round-trip the installer makes to resolve the latest release.
+# check live in /usr/local/lib/dev-vm/install-neovim (a mode: data file), which
+# is also the way to upgrade neovim by hand later. Runs as root on every boot,
+# so it must be idempotent: once everything is installed both blocks are
+# skipped, including the GitHub round-trip the installer makes to resolve the
+# latest release.
 #
 # The plugin build toolchain comes from apt instead, and the tarball ships none
 # of it: nvim-treesitter shells out to tree-sitter-cli and to a C compiler to

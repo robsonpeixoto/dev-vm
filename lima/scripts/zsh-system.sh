@@ -1,7 +1,7 @@
 #!/bin/sh
 # Installs zsh and makes it the guest user's login shell. Runs as root on
 # every boot, so it must be idempotent: the apt work is skipped once zsh is
-# installed (security fixes then come from 05-upgrade-security). git — the
+# installed. git — the
 # oh-my-zsh installer's prerequisite — comes from git-system.sh, which runs
 # first; the installer itself runs per-user in omz-user.sh.
 set -eux

@@ -1,0 +1,18 @@
+// dev-vm: nothing upgrades on its own. Ubuntu's cloud image ships
+// unattended-upgrades with the apt-daily timers active, which would refresh
+// the lists and apply security patches inside a randomized window — next to
+// boot provisioning, or in the middle of a build. This VM is a workspace, so
+// upgrades are the operator's call:
+//
+//   limactl shell <name> sudo apt-get update
+//   limactl shell <name> sudo apt-get upgrade
+//
+// Numbered 99 so it is read after the packaged 20auto-upgrades and
+// 50unattended-upgrades and wins on every key it sets. The apt-daily timers
+// are masked as well (no-auto-upgrades-system.sh) — this file alone would
+// leave them starting and exiting every day.
+APT::Periodic::Enable "0";
+APT::Periodic::Update-Package-Lists "0";
+APT::Periodic::Unattended-Upgrade "0";
+APT::Periodic::Download-Upgradeable-Packages "0";
+APT::Periodic::AutocleanInterval "0";

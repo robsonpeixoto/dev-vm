@@ -275,8 +275,9 @@ the instance's life: resizing means `limactl edit` or destroy + create.
 `limactl list --format json`, where memory and disk are **bytes**. That is the
 declared *size* only — Lima reports no usage figure, so disk pressure is a
 guest question (`docker system df`, `df -h /`) and `list` deliberately stays out
-of it. Keeping the disk from filling is the weekly `20-prune-docker` cron job;
-see the disk hygiene section of README.md.
+of it. Nothing prunes the disk on a schedule — the VM runs no cron at all — so
+reclaiming space is a manual `docker system prune`; see the disk hygiene
+section of README.md.
 
 ### Guest OS pin
 
@@ -314,7 +315,8 @@ change in this repo.
   never a bare `shfmt`/`gofmt`, so the flags stay in one place. The `Makefile`
   holds `format`/`check-format` and their `-go`/`-shell` halves; `SHELL_DIRS`
   (`lima completions`) is the list shfmt walks, finding shell files by extension
-  or shebang, so the extensionless cron jobs need no listing. The width comes
+  or shebang, so the extensionless `lima/files/install-neovim` needs no
+  listing. The width comes
   from the repo-root `.editorconfig` (`root = true`, so it covers every
   directory) and its `[[shell]]` section, an shfmt extension that matches by
   shebang too. CI's `check` job runs `make check-format-go`, its `shell` job
@@ -323,49 +325,34 @@ change in this repo.
   shellcheck cannot read.
 - Idempotent, always — the script reruns on every boot.
 - Root work in `system`, per-user/systemd work in `user`, never mix.
-- No `-o DPkg::Lock::Timeout` anywhere, provision script or cron job. apt
-  already defaults `Dpkg::Lock::Timeout` to 120 s whenever stdin is not a tty
+- No `-o DPkg::Lock::Timeout` anywhere. apt already defaults
+  `Dpkg::Lock::Timeout` to 120 s whenever stdin is not a tty
   (`BinarySpecificConfiguration` in apt's `private-cmndline.cc`, since apt
   2.0), which covers every non-interactive run, and the flag never applied to
   `apt-get update` in the first place: the lists lock goes through
   `pkgAcquire::GetLock` → `GetLock` (a non-blocking `F_SETLK`), not
-  `GetLockMaybeWait`. Contention is solved by having one scheduler, not by
-  passing the option — see the `apt-daily` note below.
+  `GetLockMaybeWait`. Contention is solved by having no second apt scheduler —
+  see the no-auto-upgrade note below — not by passing the option.
 - Secrets and config files go through `mode: data` with explicit `owner` and
   `permissions`, not `echo` or a heredoc inside a script. Static payloads live
   in `lima/files/`, referenced with `file.url` like the scripts.
-- `dev-vm-cron` is the guest's only apt scheduler, and everything that drives
-  apt goes through it. `scripts/unattended-upgrades-system.sh` installs
-  `unattended-upgrades` but **masks** `apt-daily.timer` and
-  `apt-daily-upgrade.timer` (they fire in a randomized window and, being
-  `Persistent=true`, catch up right after a VM start, next to boot
-  provisioning); `cron.d/05-upgrade-security` calls `unattended-upgrade`
-  itself, under the policy in the `mode: data` file
-  `lima/files/apt/52dev-vm-unattended-upgrades`. That policy is scoped to the
-  security pockets, so anything needing a non-security upgrade (Docker, git,
-  mise, the neovim toolchain) keeps its own job in `cron.d`. Never re-enable
-  those
-  timers: a second scheduler is what makes lock races possible.
-- `05-upgrade-security` runs the tick's single `apt-get update` (with a bounded
-  retry, since the lists lock has no built-in wait), so later jobs install from
-  fresh lists and must not run their own.
-- `dev-vm-cron` exits 0 without running anything while `/run/lima-boot-done` is
-  absent: boot provisioning is the one apt user its `flock` cannot reach.
-- Recurring guest maintenance is a job file, not a new cron line: put an
-  executable script in `lima/files/cron.d/` and a `mode: data` entry mapping it
-  to `/usr/local/lib/dev-vm/cron.d/<NN>-<name>` (permissions `755`).
-  `/etc/cron.d/dev-vm` holds a single entry, `/usr/local/sbin/dev-vm-cron`,
-  which runs that directory in name order under `flock` — jobs run one at a
-  time and overlapping ticks queue instead of racing.
-  A job that must run less often than the 6-hour tick throttles itself with a
-  stamp file (`20-prune-docker` uses `/var/lib/dev-vm/docker-prune.stamp` for
-  its weekly schedule) rather than taking a second cron line.
-- A cron job talking to Docker has to cross a user boundary: the runner is
-  root, Docker is rootless and root has no daemon. Resolve the login user from
-  the `/run/user/<uid>/docker.sock` path and re-enter it —
-  `runuser -u "$user" -- env HOME=… DOCKER_HOST="unix://$sock" docker …` — the
-  way `20-prune-docker` does. A missing socket means no daemon, so the job
-  no-ops instead of failing.
+- **Nothing in the guest upgrades itself, and nothing runs on a schedule.**
+  There is no cron, no `cron.d`, no `unattended-upgrades`. Boot provisioning
+  installs what is missing and stops there; upgrading is the operator's
+  `apt-get upgrade` (plus `/usr/local/lib/dev-vm/install-neovim` for neovim,
+  which apt does not carry). Two pieces enforce it and must stay:
+  `scripts/no-auto-upgrades-system.sh` **masks** `apt-daily.timer`,
+  `apt-daily-upgrade.timer`, both of their services and
+  `unattended-upgrades.service` (the timers fire in a randomized window and,
+  being `Persistent=true`, catch up right after a VM start, next to boot
+  provisioning), and the `mode: data` file
+  `lima/files/apt/99dev-vm-no-auto-upgrades` zeros every `APT::Periodic` key.
+  Mask, never merely disable: an apt upgrade re-enables a disabled unit, and a
+  masked unit cannot be started even while it is still enabled.
+- Do not reintroduce a scheduler. A recurring job would be a second apt client
+  racing boot provisioning for the dpkg lock, and version drift nobody asked
+  for. Anything periodic belongs on the host side of the VM, or in the
+  operator's hands.
 - Templates, scripts and static files are embedded into the Go binary with
   `//go:embed` (see `embed.go`) and materialized into a temp dir at create
   time; `go run .` picks up edits automatically, a prebuilt `devvm` binary

@@ -1,13 +1,14 @@
 #!/bin/sh
 # Installs or updates neovim from the official pre-built archives
 # (https://neovim.io/doc/install/#pre-built-archives). The PPA is not a usable
-# source here, so the release tarball is the supported path. Shared by
-# neovim-system.sh (every boot) and cron.d/15-update-neovim (every tick), so it
-# must be idempotent: it resolves the latest release tag, compares it with the
-# installed binary, and does nothing when they match.
+# source here, so the release tarball is the supported path. Called by
+# neovim-system.sh on every boot, and by the operator to upgrade neovim later
+# (sudo /usr/local/lib/dev-vm/install-neovim), so it must be idempotent: it
+# resolves the latest release tag, compares it with the installed binary, and
+# does nothing when they match.
 #
-# No apt here — the cron job runs against a live system and the boot script
-# already installs curl.
+# No apt here — it runs against a live system and the boot script already
+# installs curl.
 set -eu
 
 case "$(uname -m)" in

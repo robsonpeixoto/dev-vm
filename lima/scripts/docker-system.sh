@@ -23,7 +23,8 @@ packages="ca-certificates curl uidmap dbus-user-session passt
     docker-buildx-plugin docker-compose-plugin"
 
 # Only the first boot goes to the network; once everything is installed the
-# whole apt block is skipped and upgrades are cron's job (10-update-docker).
+# whole apt block is skipped. Nothing upgrades Docker on its own — that is a
+# manual apt-get upgrade in the guest.
 missing=0
 for pkg in $packages; do
     installed "$pkg" || missing=1
@@ -57,8 +58,5 @@ fi
 systemctl disable --now docker.service docker.socket containerd.service containerd.socket || true
 systemctl mask docker.service docker.socket containerd.service containerd.socket || true
 
-# The updater (/usr/local/lib/dev-vm/cron.d/10-update-docker), the cron runner
-# and its /etc/cron.d entry ship as `mode: data` files, applied before this
-# script runs. Package upgrades reach
-# the user's running daemon on the next boot, when the rootless systemd user
-# unit restarts.
+# A Docker upgrade installed here (or by hand) reaches the user's running
+# daemon on the next boot, when the rootless systemd user unit restarts.
