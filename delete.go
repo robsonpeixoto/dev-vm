@@ -11,9 +11,9 @@ import (
 	"strings"
 )
 
-const destroyUsage = `Destroy a Lima dev VM and its GitHub SSH access.
+const deleteUsage = `Delete a Lima dev VM and its GitHub SSH access.
 
-Usage: devvm destroy [name] [-force]
+Usage: devvm delete [name] [-force]
 
 - Checks the gh token carries the admin:public_key scope, before removing
   anything, so an auth problem costs nothing.
@@ -28,14 +28,14 @@ Usage: devvm destroy [name] [-force]
 
 The recoverable work comes first and the VM disk last, so a failure talking to
 GitHub leaves the VM in place. Each step is skipped with a message when there
-is nothing to remove, so a partial destroy can be re-run.
+is nothing to remove, so a partial delete can be re-run.
 
 `
 
-func cmdDestroy(argv []string) {
-	fs := flag.NewFlagSet("destroy", flag.ExitOnError)
+func cmdDelete(argv []string) {
+	fs := flag.NewFlagSet("delete", flag.ExitOnError)
 	fs.Usage = func() {
-		fmt.Fprint(os.Stderr, destroyUsage)
+		fmt.Fprint(os.Stderr, deleteUsage)
 		fs.PrintDefaults()
 	}
 	var force bool
@@ -47,9 +47,9 @@ func cmdDestroy(argv []string) {
 	checkScopes()
 	if !force {
 		if !isTerminal(os.Stdin) {
-			die("destroy needs a terminal to confirm; rerun with: devvm destroy %s -force", name)
+			die("delete needs a terminal to confirm; rerun with: devvm delete %s -force", name)
 		}
-		if err := confirmDestroy(name, os.Stdin, os.Stdout); err != nil {
+		if err := confirmDelete(name, os.Stdin, os.Stdout); err != nil {
 			die("%v", err)
 		}
 	}
@@ -66,9 +66,9 @@ func cmdDestroy(argv []string) {
 	}
 }
 
-// confirmDestroy requires the VM name to be typed back before anything is
+// confirmDelete requires the VM name to be typed back before anything is
 // deleted. A short read counts as a mismatch: ^D leaves the VM alone.
-func confirmDestroy(name string, in io.Reader, out io.Writer) error {
+func confirmDelete(name string, in io.Reader, out io.Writer) error {
 	fmt.Fprintf(out, "This deletes VM %q, its disk and everything in it, "+
 		"its GitHub key and the local key pair.\n", name)
 	fmt.Fprintf(out, "Type %s to confirm: ", name)
@@ -77,7 +77,7 @@ func confirmDestroy(name string, in io.Reader, out io.Writer) error {
 		return fmt.Errorf("cannot read confirmation: %v", err)
 	}
 	if strings.TrimSpace(answer) != name {
-		return errors.New("name does not match, nothing destroyed")
+		return errors.New("name does not match, nothing deleted")
 	}
 	return nil
 }

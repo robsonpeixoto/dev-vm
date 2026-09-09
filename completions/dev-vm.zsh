@@ -14,7 +14,7 @@ _dev_vm() {
         'create:create a dev VM'
         'start:start a stopped dev VM'
         'stop:stop a running dev VM'
-        'destroy:destroy a dev VM and its GitHub key'
+        'delete:delete a dev VM and its GitHub key'
         'list:list dev VMs with their IP and SSH hostname'
         'status:show one dev VM in detail'
         'completion:print the shell completion script'
@@ -48,7 +48,7 @@ _dev_vm() {
                 '-ip[print only the guest IP, empty when unavailable]' \
                 '1:name:_dev_vm_names'
             ;;
-        destroy)
+        delete)
             _arguments \
                 '-force[skip the confirmation prompt]' \
                 '1:name:_dev_vm_names'

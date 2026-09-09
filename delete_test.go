@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestConfirmDestroy(t *testing.T) {
+func TestConfirmDelete(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		answer  string
@@ -21,19 +21,19 @@ func TestConfirmDestroy(t *testing.T) {
 		{name: "eof", answer: "", wantErr: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := confirmDestroy("myvm", strings.NewReader(tc.answer), io.Discard)
+			err := confirmDelete("myvm", strings.NewReader(tc.answer), io.Discard)
 			if (err != nil) != tc.wantErr {
-				t.Errorf("confirmDestroy(%q) = %v, wantErr %v", tc.answer, err, tc.wantErr)
+				t.Errorf("confirmDelete(%q) = %v, wantErr %v", tc.answer, err, tc.wantErr)
 			}
 		})
 	}
 }
 
-// TestConfirmDestroyPrompt: the prompt has to name the VM, since typing that
+// TestConfirmDeletePrompt: the prompt has to name the VM, since typing that
 // name is what the user is being asked for.
-func TestConfirmDestroyPrompt(t *testing.T) {
+func TestConfirmDeletePrompt(t *testing.T) {
 	var out strings.Builder
-	if err := confirmDestroy("myvm", strings.NewReader("myvm\n"), &out); err != nil {
+	if err := confirmDelete("myvm", strings.NewReader("myvm\n"), &out); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "myvm") {

@@ -18,7 +18,7 @@ Lima runs a Linux guest from a YAML template. On macOS the VM type is `vz`
   `~/.lima/<name>/lima.yaml`. That file — not the repo template — is the source
   of truth for later boots. Editing `lima/dev-vm.yaml` or `lima/scripts/*.sh`
   has **no effect on an existing VM**; recreate it
-  (`go run . destroy && go run . create`) or `limactl edit <name>`.
+  (`go run . delete && go run . create`) or `limactl edit <name>`.
 - Instance directory holds `lima.yaml`, `basedisk`/`diffdisk`, `cidata.iso`,
   `ha.stdout.log`, `ha.stderr.log`, `serial*.log`.
 - Guest configuration is delivered by **cloud-init** through `cidata.iso`,
@@ -269,7 +269,7 @@ that is passed wins. The values in `lima/dev-vm.yaml` are documentation only —
 
 Flags and settings are integers in GiB; non-integers are rejected by the `flag`
 package and non-positive values by `checkResources`, both before the VM starts. Because the template is flattened at creation, the size is fixed for
-the instance's life: resizing means `limactl edit` or destroy + create.
+the instance's life: resizing means `limactl edit` or delete + create.
 
 `go run . list` reads the live `cpus`/`memory`/`disk` back out of
 `limactl list --format json`, where memory and disk are **bytes**. That is the
@@ -358,5 +358,5 @@ change in this repo.
   time; `go run .` picks up edits automatically, a prebuilt `devvm` binary
   must be rebuilt.
 - After changing a template or script, the VM must be recreated
-  (`go run . destroy <name> && go run . create <name>`) for the change to
+  (`go run . delete <name> && go run . create <name>`) for the change to
   apply.

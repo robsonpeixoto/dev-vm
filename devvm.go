@@ -1,4 +1,4 @@
-// Shared helpers for the create and destroy subcommands.
+// Shared helpers for the create and delete subcommands.
 //
 // All external work goes through command line tools: limactl and gh.
 // VM metadata lives in a JSON state file under ~/.config/dev-vm, alongside an

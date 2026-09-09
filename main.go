@@ -16,7 +16,7 @@ Usage:
                 [-cpus N] [-memory GiB] [-disk GiB]
   dev-vm start [name]
   dev-vm stop [name] [-force]
-  dev-vm destroy [name] [-force]
+  dev-vm delete [name] [-force]
   dev-vm list
   dev-vm status [name] [-ip]
   dev-vm completion <bash|zsh|fish>
@@ -37,8 +37,8 @@ func main() {
 		cmdStart(os.Args[2:])
 	case "stop":
 		cmdStop(os.Args[2:])
-	case "destroy":
-		cmdDestroy(os.Args[2:])
+	case "delete":
+		cmdDelete(os.Args[2:])
 	case "list":
 		cmdList(os.Args[2:])
 	case "status":

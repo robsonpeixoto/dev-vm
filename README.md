@@ -7,7 +7,7 @@ forwards, rootless Docker, zsh + oh-my-zsh, mise, neovim, GitHub SSH access.
 go run . create [name]    # create and start the VM
 go run . start [name]     # boot a stopped VM
 go run . stop [name]      # shut it down, keeping the disk
-go run . destroy [name]   # delete it (confirms first; -force skips)
+go run . delete [name]    # delete it (confirms first; -force skips)
 go run . list             # list VMs with status, size, IP and SSH hostname
 go run . status [name]    # one VM in detail, including its IP
 go run . status [name] -ip  # just the IP, for scripts
@@ -106,7 +106,7 @@ release.
 
    A flag beats settings.json, which beats the built-in defaults. Size is
    baked into the instance at create time, so changing it means
-   `go run . destroy myvm && go run . create myvm -cpus …`.
+   `go run . delete myvm && go run . create myvm -cpus …`.
 
 4. Get in:
 
@@ -166,15 +166,14 @@ release.
    asks first — type the VM name back to go ahead, anything else aborts:
 
    ```sh
-   go run . destroy myvm
+   go run . delete myvm
    ```
 
    Scripts and CI pass `-force` to skip the prompt. Without a terminal on
-   stdin, `destroy` refuses instead of hanging, so `-force` is mandatory
-   there:
+   stdin, `delete` refuses instead of hanging, so `-force` is mandatory there:
 
    ```sh
-   go run . destroy myvm -force
+   go run . delete myvm -force
    ```
 
    The token scope is checked before the prompt, and the VM disk is deleted
@@ -226,8 +225,8 @@ Lima's own ssh tunnel on `127.0.0.1`. That is internal to Lima, not a
 ## Shell completion
 
 `dev-vm completion <bash|zsh|fish>` prints the completion script for that
-shell. It completes subcommands, the `create`, `stop` and `destroy` flags, and
-the recorded VM names for `start`, `stop` and `destroy`.
+shell. It completes subcommands, the `create`, `stop` and `delete` flags, and
+the recorded VM names for `start`, `stop` and `delete`.
 
 Try it in the current shell:
 
@@ -307,7 +306,7 @@ editing. Two requirements:
 `<host>` is the short host name from `os.Hostname()` (no `.local` suffix), so
 two machines that both create `default` register two distinct keys instead of
 deleting each other's. The exact title is recorded as `github_key_title` in the
-state file; `destroy` deletes by that stored title, falling back to the bare VM
+state file; `delete` deletes by that stored title, falling back to the bare VM
 name for VMs created before titles were qualified.
 
 - Host: `~/.config/dev-vm/keys/<name>` (dir 0700, private key 0600, enforced
@@ -315,7 +314,7 @@ name for VMs created before titles were qualified.
   `~/.ssh/*.pub` into the guest.
 - Guest: the private key is uploaded to `~/.ssh/id_ed25519`; `~/.ssh/config`
   pins it for github.com with `IdentitiesOnly yes`.
-- `destroy` deletes the GitHub key, the local pair, the VM and the state entry,
+- `delete` deletes the GitHub key, the local pair, the VM and the state entry,
   in that order, after confirming the VM name (`-force` skips the prompt). The
   irreversible step is last, and the token scope is checked first, so a `gh`
   failure aborts with the VM still there.
@@ -354,11 +353,11 @@ bump fails provisioning at `apt-get update`. (mise's repo is codename-agnostic.)
 2. Point the `base:` entry in `lima/dev-vm.yaml` at the new
    `template:_images/ubuntu-XX.YY`, and update the release named in this
    section and in [CLAUDE.md](CLAUDE.md).
-3. Create a throwaway VM, walk the checklist, then destroy it:
+3. Create a throwaway VM, walk the checklist, then delete it:
 
    ```sh
    go run . create pinbump
-   go run . destroy pinbump
+   go run . delete pinbump
    ```
 
 Every new LTS has to pass all three on that fresh create:
@@ -416,7 +415,7 @@ limactl shell <name> ls /etc/cron.d
 ```
 
 The VM is cheap to replace, so the other upgrade path is
-`go run . destroy <name> && go run . create <name>`: a fresh create installs
+`go run . delete <name> && go run . create <name>`: a fresh create installs
 current versions of everything.
 
 ## Disk hygiene
@@ -451,7 +450,7 @@ Resizing is the painful part: `cpus`, `memory` and `disk` are baked into
 `go run . create myvm -disk 100`, or the `disk` key in
 `~/.config/dev-vm/settings.json` for every VM. Afterwards the only paths are
 `limactl stop <name>` plus `limactl edit <name>` to raise `disk:` (Lima grows a
-disk, never shrinks it), or `go run . destroy myvm && go run . create myvm
+disk, never shrinks it), or `go run . delete myvm && go run . create myvm
 -disk 100`, which throws the guest away.
 
 ## Provisioning steps

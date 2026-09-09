@@ -8,7 +8,7 @@ _dev_vm() {
     COMPREPLY=()
 
     if [ "$COMP_CWORD" -eq 1 ]; then
-        COMPREPLY=($(compgen -W "create start stop destroy list status completion version help" -- "$cur"))
+        COMPREPLY=($(compgen -W "create start stop delete list status completion version help" -- "$cur"))
         return
     fi
 
@@ -35,7 +35,7 @@ _dev_vm() {
             COMPREPLY=($(compgen -W "$("${COMP_WORDS[0]}" __names 2>/dev/null)" -- "$cur"))
         fi
         ;;
-    stop | destroy)
+    stop | delete)
         if [ "${cur:0:1}" = "-" ]; then
             COMPREPLY=($(compgen -W "-force -help" -- "$cur"))
         else

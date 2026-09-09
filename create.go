@@ -31,7 +31,7 @@ Usage: devvm create [name] [-create-ssh-key=false] [-dotfiles REPO|-no-dotfiles]
   -memory and -disk override that; -memory and -disk are plain integers in
   GiB. The "cpus", "memory" and "disk" entries in
   ~/.config/dev-vm/settings.json change the defaults for every VM. Size is
-  fixed at create time — resizing means destroy and create again.
+  fixed at create time — resizing means delete and create again.
 - Records VM metadata (GitHub key id, key paths) in ~/.config/dev-vm/state.json.
 
 `
@@ -71,7 +71,7 @@ func cmdCreate(argv []string) {
 	checkResources(res)
 	dotfiles := resolveDotfiles(dotfilesRepo, noDotfiles)
 	if vmExists(name) {
-		die("VM %q already exists; run: devvm destroy %s", name, name)
+		die("VM %q already exists; run: devvm delete %s", name, name)
 	}
 
 	key, pub := keyPaths(name)
