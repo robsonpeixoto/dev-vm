@@ -267,6 +267,33 @@ matches on output).
   `cmdCreate` resolves settings *after* flag parsing — see [VM
   size](#vm-size) for how the flags keep winning anyway.
 
+### Rust toolchain
+
+`scripts/rust-user.sh` installs rustup (stable, `--profile minimal`) as the
+guest login user, for neovim plugins with a Rust component —
+[blink.cmp](https://github.com/saghen/blink.cmp) builds its fuzzy matcher with
+`cargo build --release`.
+
+- **User mode, not a system package.** rustup owns `~/.rustup` and `~/.cargo`,
+  so `rustup update`, `rustup component add` and `cargo install` need no sudo.
+  `neovim-system.sh` used to apt-install `cargo` for exactly this and no longer
+  does: crate MSRVs move much faster than an LTS archive, and two toolchains on
+  one `PATH` is worse than one. Do not add `cargo` back to that package list —
+  `build-essential` there is still required, since cargo needs a linker.
+- **`PATH` comes from `files/rust.sh`** (`mode: data` →
+  `/etc/profile.d/rust.sh`), which prepends `~/.cargo/bin` when it exists.
+  rustup therefore runs with `--no-modify-path`: appending to `~/.zshrc` or
+  `~/.profile` would fight the dotfiles that own them. `zsh-system.sh` lists
+  that file alongside `docker-host.sh` and `dev-vm.sh` in the `/etc/zsh/zshenv`
+  loop, which is what puts cargo in reach of a non-login shell and of nvim
+  started from one.
+- Idempotent by skipping: an existing `~/.cargo/bin/cargo` ends the script, so
+  a reboot never re-downloads or silently upgrades the toolchain.
+- The other build inputs come from elsewhere and must stay: `git` from
+  `git-system.sh` (blink.cmp's `build.rs` shells out to `git rev-parse HEAD`)
+  and the linker from `build-essential`. blink.cmp needs Neovim 0.12+, which
+  the release tarball `install-neovim` fetches already satisfies.
+
 ### Dotfiles
 
 `go run . create -dotfiles REPO` sets the `DOTFILES_REPO` param (via

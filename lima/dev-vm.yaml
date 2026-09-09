@@ -70,6 +70,15 @@ provision:
     owner: "root:root"
     permissions: "644"
     overwrite: true
+  # ~/.cargo/bin (rustup shims) on PATH, reaching every shell the same way.
+  # rust-user.sh installs rustup with --no-modify-path and relies on this.
+  - mode: data
+    file:
+      url: files/rust.sh
+    path: /etc/profile.d/rust.sh
+    owner: "root:root"
+    permissions: "644"
+    overwrite: true
   # Rootless Docker networking: pasta instead of the slirp4netns default, for
   # faster container egress. Staged outside $HOME because data mode creates
   # missing parent directories as root, which would leave ~/.config unwritable
@@ -221,6 +230,11 @@ provision:
   - mode: user
     file:
       url: scripts/mise-user.sh
+  # The Rust toolchain neovim plugins with a Rust component build against,
+  # blink.cmp among them. Per-user, because rustup owns ~/.rustup and ~/.cargo.
+  - mode: user
+    file:
+      url: scripts/rust-user.sh
   # After mise-user.sh: mkcert itself usually comes from mise, so by now the
   # binary can answer `mkcert -CAROOT`.
   - mode: user

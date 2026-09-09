@@ -9,8 +9,11 @@
 #
 # The plugin build toolchain comes from apt instead, and the tarball ships none
 # of it: nvim-treesitter shells out to tree-sitter-cli and to a C compiler to
-# build parsers, luarocks (with luajit) builds the Lua rocks plugins depend on,
-# and cargo builds the Rust-based ones.
+# build parsers, and luarocks (with luajit) builds the Lua rocks plugins depend
+# on. Rust-based plugins (blink.cmp) build against the rustup toolchain from
+# rust-user.sh, not an apt cargo: crates raise their minimum Rust version far
+# faster than an LTS archive moves. build-essential still matters there — cargo
+# needs a linker.
 set -eux
 
 export DEBIAN_FRONTEND=noninteractive
@@ -20,13 +23,13 @@ installed() {
 }
 
 missing=0
-for pkg in curl ca-certificates tree-sitter-cli build-essential luarocks luajit cargo; do
+for pkg in curl ca-certificates tree-sitter-cli build-essential luarocks luajit; do
     installed "$pkg" || missing=1
 done
 
 if [ "$missing" = 1 ]; then
     apt-get update
-    apt-get install -y curl ca-certificates tree-sitter-cli build-essential luarocks luajit cargo
+    apt-get install -y curl ca-certificates tree-sitter-cli build-essential luarocks luajit
 fi
 
 [ -x /usr/local/bin/nvim ] || /usr/local/lib/dev-vm/install-neovim

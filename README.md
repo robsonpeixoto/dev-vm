@@ -1,7 +1,8 @@
 # dev-vm
 
 Isolated Lima dev VM for macOS: own IP via vzNAT, no mounts, no port
-forwards, rootless Docker, zsh + oh-my-zsh, mise, neovim, GitHub SSH access.
+forwards, rootless Docker, zsh + oh-my-zsh, mise, neovim, Rust, GitHub SSH
+access.
 
 ```sh
 go run . create [name]    # create and start the VM
@@ -404,6 +405,34 @@ trusted by the host browser and vice versa.
 - The setting is read at create time like everything else, so turning it on
   later means delete and create again.
 
+## Rust toolchain
+
+`rust-user.sh` installs [rustup](https://rustup.rs) as the guest login user,
+with `--profile minimal` and the stable toolchain, so `cargo` and `rustc` are
+there for the neovim plugins that ship a Rust component — chiefly
+[blink.cmp](https://github.com/saghen/blink.cmp), whose
+`require('blink.cmp').build()` runs `cargo build --release` on the plugin's
+fuzzy matcher.
+
+- Per-user, not an apt package: rustup owns `~/.rustup` and `~/.cargo`, which
+  keeps `rustup update`, `rustup component add` and `cargo install` working
+  without sudo. `cargo` from the Ubuntu archive is deliberately *not*
+  installed — crates raise their minimum Rust version far faster than an LTS
+  archive moves, and two toolchains on one `PATH` is worse than none.
+- `PATH` comes from `/etc/profile.d/rust.sh`, so rustup runs with
+  `--no-modify-path` and appends nothing to `~/.zshrc` or `~/.profile`, which
+  the dotfiles own. `zsh-system.sh` wires that file into `/etc/zsh/zshenv`
+  too, so non-login shells — and any nvim started from one — find `cargo`.
+- The rest of what a `cargo build` needs is already there: `git` (blink.cmp's
+  `build.rs` runs `git rev-parse HEAD`) from `git-system.sh` and the linker
+  from `build-essential` in `neovim-system.sh`. blink.cmp also wants Neovim
+  0.12+, which the release tarball provides; see
+  [provisioning steps](#provisioning-steps).
+- `--profile minimal` means no `clippy`, `rustfmt` or `rust-docs`. Add what
+  you want with `rustup component add clippy rustfmt`.
+- Boot provisioning never upgrades an existing toolchain — the script skips
+  when `~/.cargo/bin/cargo` exists. Upgrading is `rustup update`.
+
 ## ghostty terminfo
 
 With `"ghostty": true` in the settings, `create` dumps the `xterm-ghostty`
@@ -501,7 +530,7 @@ Two pieces enforce it, both applied on every boot:
 
 Upgrading is a deliberate command. Everything apt-installed — the OS,
 Docker, git (git-core PPA), Go (longsleep PPA), mise, zsh and the neovim build
-toolchain — comes from one call:
+toolchain — comes from one call (Rust is not apt-installed; see below):
 
 ```sh
 limactl shell <name> sudo apt-get update
@@ -514,6 +543,13 @@ compares it with the installed binary and does nothing when they match:
 
 ```sh
 limactl shell <name> sudo /usr/local/lib/dev-vm/install-neovim
+```
+
+Rust is neither: rustup owns it, per user, and boot provisioning leaves an
+existing toolchain alone ([Rust toolchain](#rust-toolchain)):
+
+```sh
+limactl shell <name> rustup update
 ```
 
 A kernel upgrade takes effect on the next restart
@@ -578,7 +614,8 @@ user), then readiness probes gate `limactl start`.
 
 1. **Data files** — GitHub key + ssh config, the global `DOCKER_HOST` snippet
    (`/etc/profile.d/docker-host.sh`), the `DEV_VM`/`DEV_VM_NAME` markers
-   (`/etc/profile.d/dev-vm.sh`), the rootless-Docker pasta override
+   (`/etc/profile.d/dev-vm.sh`), the rustup PATH entry
+   (`/etc/profile.d/rust.sh`), the rootless-Docker pasta override
    (staged at `/usr/local/lib/dev-vm/docker-rootless-override.conf`;
    `docker-user.sh` installs it into `~/.config/systemd/user/`), the
    no-auto-upgrade policy in
@@ -622,14 +659,15 @@ user), then readiness probes gate `limactl start`.
    package is missing.
 7. **`zsh-system.sh`** — installs zsh when missing, `chsh` the guest
    user to zsh, and
-   sources `/etc/profile.d/docker-host.sh` and `/etc/profile.d/dev-vm.sh` from
-   `/etc/zsh/zshenv` so non-login zsh (`limactl shell <name> <cmd>`) also gets
-   `DOCKER_HOST`, `DEV_VM` and `DEV_VM_NAME`.
+   sources `/etc/profile.d/docker-host.sh`, `/etc/profile.d/dev-vm.sh` and
+   `/etc/profile.d/rust.sh` from `/etc/zsh/zshenv` so non-login zsh
+   (`limactl shell <name> <cmd>`) also gets `DOCKER_HOST`, `DEV_VM`,
+   `DEV_VM_NAME` and `~/.cargo/bin` on `PATH`.
 8. **`mise-system.sh`** — installs mise from its apt repo when it is missing.
 9. **`neovim-system.sh`** — installs `curl` plus the plugin build toolchain the
    tarball does not ship (`tree-sitter-cli` and `build-essential` for
-   `nvim-treesitter` parsers, `luarocks` with `luajit` for Lua rocks, `cargo`
-   for Rust-based plugins) when any of it is missing, then —
+   `nvim-treesitter` parsers, `luarocks` with `luajit` for Lua rocks) when any
+   of it is missing, then —
    only when `/usr/local/bin/nvim` is absent — runs
    `/usr/local/lib/dev-vm/install-neovim`, which unpacks the official
    pre-built archive into `/opt/nvim-linux-<arch>` (`x86_64` or `arm64`,
@@ -669,11 +707,14 @@ user), then readiness probes gate `limactl start`.
    entry from `lima/dev-vm.yaml` and recreate to fall back to slirp4netns.
 18. **`mise-user.sh`** — activates mise in `~/.zshrc` (unless the oh-my-zsh
    mise plugin already does), `mise trust --all`, `mise install`.
-19. **`mkcert-user.sh`** — installs the staged root CA pair into the guest
+19. **`rust-user.sh`** — installs the Rust toolchain with rustup
+   (`--profile minimal`, stable), unless `~/.cargo/bin/cargo` is already
+   there. See [Rust toolchain](#rust-toolchain).
+20. **`mkcert-user.sh`** — installs the staged root CA pair into the guest
    CAROOT (`~/.local/share/mkcert` unless `CAROOT`/`XDG_DATA_HOME` says
    otherwise), after mise so `mkcert -CAROOT` can answer for itself. No-op when
    the staged files are empty; see [mkcert root CA](#mkcert-root-ca).
-20. **`clone-user.sh`** — clones the repositories from the `clone` setting into
+21. **`clone-user.sh`** — clones the repositories from the `clone` setting into
    `<basedir>/<repo>`, last so the ssh key, `known_hosts` and git are all in
    place. `${HOME}` in `basedir` expands here, in the guest. An existing
    directory is skipped and a failing clone is logged and skipped, so neither
@@ -683,7 +724,7 @@ user), then readiness probes gate `limactl start`.
 flowchart TD
     subgraph data["data files (copied by root)"]
         d1["~/.ssh/id_ed25519<br>GitHub SSH key<br>ssh-github.conf<br>staged config.d drop-in"]
-        d2["/etc/profile.d/docker-host.sh<br>DOCKER_HOST for libraries<br>/etc/profile.d/dev-vm.sh<br>DEV_VM + DEV_VM_NAME markers"]
+        d2["/etc/profile.d/docker-host.sh<br>DOCKER_HOST for libraries<br>/etc/profile.d/dev-vm.sh<br>DEV_VM + DEV_VM_NAME markers<br>/etc/profile.d/rust.sh<br>~/.cargo/bin on PATH"]
         d3["apt.conf.d/99dev-vm-no-auto-upgrades<br>APT::Periodic all zero"]
         d4["install-neovim<br>neovim tarball installer<br>(boot + manual upgrade)"]
         d5["my-ip<br>prints the guest IP"]
@@ -699,9 +740,9 @@ flowchart TD
         s1["docker-system.sh<br>Docker packages, mask system daemon"]
         s1b["git-system.sh<br>install git from the git-core PPA"]
         s1c["go-system.sh<br>install golang-go from the backports PPA"]
-        s2["zsh-system.sh<br>install zsh, set login shell,<br>hook both profile.d files into /etc/zsh/zshenv"]
+        s2["zsh-system.sh<br>install zsh, set login shell,<br>hook the profile.d files into /etc/zsh/zshenv"]
         s3["mise-system.sh<br>install mise from apt repo"]
-        s4["neovim-system.sh<br>install neovim from the release tarball<br>+ tree-sitter-cli, build-essential,<br>luarocks, luajit and cargo"]
+        s4["neovim-system.sh<br>install neovim from the release tarball<br>+ tree-sitter-cli, build-essential,<br>luarocks and luajit"]
         s4b["packages-system.sh<br>tig, postgresql, libpq-dev,<br>libnss3-tools from the archive"]
         s4c["ghostty-terminfo-system.sh<br>tic -x the xterm-ghostty entry<br>into /usr/share/terminfo"]
         s5["no-auto-upgrades-system.sh<br>mask the apt-daily timers and<br>unattended-upgrades.service"]
@@ -714,6 +755,7 @@ flowchart TD
         u3["dotfiles.sh<br>check out dotfiles over $HOME"]
         u4["docker-user.sh<br>set up rootless Docker daemon<br>(pasta networking)"]
         u5["mise-user.sh<br>trust config, install tools"]
+        u5r["rust-user.sh<br>install the rustup toolchain"]
         u5b["mkcert-user.sh<br>install the root CA into<br>the guest CAROOT"]
         u6["clone-user.sh<br>clone the repositories from<br>the clone setting"]
     end
@@ -726,6 +768,6 @@ flowchart TD
     data --> system
     s0 --> s0b --> s1 --> s1b --> s1c --> s2 --> s3 --> s4 --> s4b --> s4c --> s5
     system --> user
-    u1 --> u1b --> u2 --> u3 --> u4 --> u5 --> u5b --> u6
+    u1 --> u1b --> u2 --> u3 --> u4 --> u5 --> u5r --> u5b --> u6
     user --> probes
 ```
