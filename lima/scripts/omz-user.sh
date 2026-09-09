@@ -10,4 +10,4 @@ set -eux
 # CHSH=no: the login shell is already zsh (chsh done as root in
 # zsh-system.sh; user chsh would prompt for a password). RUNZSH=no: do not
 # exec an interactive zsh at the end.
-RUNZSH=no CHSH=no sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+KEEP_ZSHRC=yes RUNZSH=no CHSH=no sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
