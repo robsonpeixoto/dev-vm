@@ -102,8 +102,9 @@ release.
 4. Optional — settings.json. `~/.config/dev-vm/settings.json` holds a
    `default` block that applies to every VM, plus a `vms` block keyed by VM
    name that overrides it key by key. `clone` lists repositories to clone in
-   the guest, per GitHub org, with the directory they go under, and `mkcert`
-   copies the host mkcert root CA into the VM:
+   the guest, per GitHub org, with the directory they go under, `mkcert`
+   copies the host mkcert root CA into the VM and `ghostty` installs the
+   xterm-ghostty terminfo entry in it:
 
    ```json
    {
@@ -113,6 +114,7 @@ release.
        "disk": 100,
        "dotfiles": "git@github.com:user/dotfiles.git",
        "mkcert": true,
+       "ghostty": true,
        "clone": [
          {
            "org": "robsonpeixoto",
@@ -126,14 +128,15 @@ release.
          "cpus": 4,
          "memory": 4,
          "clone": [],
-         "mkcert": false
+         "mkcert": false,
+         "ghostty": false
        }
      }
    }
    ```
 
    Here `new-vm` gets 4 vCPUs and 4 GiB, keeps the default 100 GiB disk and
-   dotfiles, clones nothing and gets no CA; every other VM gets the `default` block as
+   dotfiles, clones nothing and gets neither the CA nor the terminfo entry; every other VM gets the `default` block as
    written. An override replaces the key outright rather than merging into it,
    so `"clone": []` means no repositories and `"dotfiles": ""` means no
    dotfiles. Unknown keys are rejected, at either level.
@@ -150,6 +153,9 @@ release.
    `"mkcert": true` needs [mkcert](https://github.com/FiloSottile/mkcert) on
    the host with a CA already generated (`mkcert -install`); `create` fails
    with a hint otherwise. See [mkcert root CA](#mkcert-root-ca).
+
+   `"ghostty": true` needs Homebrew's ncurses on the host
+   (`brew install ncurses`). See [ghostty terminfo](#ghostty-terminfo).
 
 5. Get in:
 
@@ -398,6 +404,32 @@ trusted by the host browser and vice versa.
 - The setting is read at create time like everything else, so turning it on
   later means delete and create again.
 
+## ghostty terminfo
+
+With `"ghostty": true` in the settings, `create` dumps the `xterm-ghostty`
+terminfo entry on the host and the guest compiles it, so the `TERM` that
+[Ghostty](https://ghostty.org) exports keeps working inside the VM instead of
+leaving ncurses programs on the `xterm-256color` fallback (or complaining that
+the terminal is unknown).
+
+- The dump uses **Homebrew's** `infocmp`
+  (`$(brew --prefix ncurses)/bin/infocmp -x xterm-ghostty`). The macOS
+  built-in is ncurses 6.0 from 2015 and mangles the extended (`-x`)
+  capabilities the entry mostly consists of, so `brew install ncurses` is a
+  requirement rather than a preference; `create` fails with that hint when the
+  binary is not there.
+- The entry itself comes from wherever `TERMINFO` points, which is the app
+  bundle when `devvm` runs inside Ghostty. Outside it, `create` retries with
+  `TERMINFO=/Applications/Ghostty.app/Contents/Resources/terminfo`.
+- The dump is staged base64-encoded and `ghostty-terminfo-system.sh` pipes it
+  through `tic -x -o /usr/share/terminfo`, as root: system-wide, so `sudo` and
+  root shells get the entry too. base64 is not decoration — see
+  [CLAUDE.md](CLAUDE.md) on Lima templating `mode: data` content.
+- Nothing sets `TERM` in the guest: ssh and `limactl shell` carry the host
+  value, which is the whole point of compiling the entry there.
+- Like every other setting, this is read at create time, so turning it on
+  later means delete and create again.
+
 ## Guest OS
 
 The guest is pinned to **Ubuntu 26.04 LTS**, by
@@ -560,7 +592,9 @@ user), then readiness probes gate `limactl start`.
    (`/usr/local/lib/dev-vm/clone-list`, rendered by `devvm create` from the
    `clone` setting), and the mkcert root CA pair
    (`/usr/local/lib/dev-vm/rootCA.pem` and `rootCA-key.pem`, both empty unless
-   the `mkcert` setting is on).
+   the `mkcert` setting is on), and the base64 `xterm-ghostty` terminfo dump
+   (`/usr/local/lib/dev-vm/xterm-ghostty.terminfo.b64`, empty unless the
+   `ghostty` setting is on).
 2. **`firewall-system.sh`** — keeps the guest network open, first of the system
    scripts: installs `nftables` when missing, deletes the `inet/ip/ip6 filter`
    tables (never `nft flush ruleset` — Lima's `table ip nat` carries the
@@ -606,22 +640,26 @@ user), then readiness probes gate `limactl start`.
    Ubuntu archive, the packages that need no third-party repo: `tig`,
    `postgresql` with `libpq-dev`, and `libnss3-tools` (`certutil`, for
    trusting a local CA). Skipped entirely once all of them are installed.
-11. **`no-auto-upgrades-system.sh`** — masks `apt-daily.timer`,
+11. **`ghostty-terminfo-system.sh`** — decodes the staged `xterm-ghostty`
+   terminfo dump and compiles it with `tic -x` into `/usr/share/terminfo`,
+   installing `ncurses-bin` first if the image lacks `tic`. No-op when the
+   staged file is empty; see [ghostty terminfo](#ghostty-terminfo).
+12. **`no-auto-upgrades-system.sh`** — masks `apt-daily.timer`,
    `apt-daily-upgrade.timer`, their services and `unattended-upgrades.service`,
    so Ubuntu's stock automatic upgrades never fire. The matching
    `APT::Periodic` zeros ship as the data file above; see
    [upgrading the guest](#upgrading-the-guest).
-12. **`ssh-known-hosts.sh`** — rewrites `~/.ssh/known_hosts` from live
+13. **`ssh-known-hosts.sh`** — rewrites `~/.ssh/known_hosts` from live
    `ssh-keyscan github.com` output.
-13. **`ssh-config-user.sh`** — creates `~/.ssh/config.d` and installs the
+14. **`ssh-config-user.sh`** — creates `~/.ssh/config.d` and installs the
    staged GitHub stanza as `10-github.conf`. It does not touch
    `~/.ssh/config`; see [GitHub SSH key](#github-ssh-key).
-14. **`omz-user.sh`** — installs oh-my-zsh (skipped if `~/.oh-my-zsh` exists).
-15. **`dotfiles.sh`** — clones the bare repo to `~/.dotfiles` and checks it out
+15. **`omz-user.sh`** — installs oh-my-zsh (skipped if `~/.oh-my-zsh` exists).
+16. **`dotfiles.sh`** — clones the bare repo to `~/.dotfiles` and checks it out
    over `$HOME` (clobbered files move to `~/tmp/config-backup`). No-op without
    `DOTFILES_REPO`. The repo owns `~/.ssh/config`, so it is also responsible
    for including the drop-ins above.
-16. **`docker-user.sh`** — installs the pasta override into
+17. **`docker-user.sh`** — installs the pasta override into
    `~/.config/systemd/user/docker.service.d/`, then
    `dockerd-rootless-setuptool.sh install` and selects the
    `rootless` context. The daemon comes up with pasta networking instead of
@@ -629,13 +667,13 @@ user), then readiness probes gate `limactl start`.
    `DOCKERD_ROOTLESS_ROOTLESSKIT_NET=pasta` (with its `implicit` port driver)
    for faster container egress. Still experimental upstream — drop the override
    entry from `lima/dev-vm.yaml` and recreate to fall back to slirp4netns.
-17. **`mise-user.sh`** — activates mise in `~/.zshrc` (unless the oh-my-zsh
+18. **`mise-user.sh`** — activates mise in `~/.zshrc` (unless the oh-my-zsh
    mise plugin already does), `mise trust --all`, `mise install`.
-18. **`mkcert-user.sh`** — installs the staged root CA pair into the guest
+19. **`mkcert-user.sh`** — installs the staged root CA pair into the guest
    CAROOT (`~/.local/share/mkcert` unless `CAROOT`/`XDG_DATA_HOME` says
    otherwise), after mise so `mkcert -CAROOT` can answer for itself. No-op when
    the staged files are empty; see [mkcert root CA](#mkcert-root-ca).
-19. **`clone-user.sh`** — clones the repositories from the `clone` setting into
+20. **`clone-user.sh`** — clones the repositories from the `clone` setting into
    `<basedir>/<repo>`, last so the ssh key, `known_hosts` and git are all in
    place. `${HOME}` in `basedir` expands here, in the guest. An existing
    directory is skipped and a failing clone is logged and skipped, so neither
@@ -652,6 +690,7 @@ flowchart TD
         d6["sysctl.d/99-dev-vm.conf<br>unprivileged ports from 0,<br>ping_group_range"]
         d7["clone-list<br>repositories to clone<br>(from the clone setting)"]
         d8["rootCA.pem + rootCA-key.pem<br>mkcert root CA<br>(from the mkcert setting)"]
+        d9["xterm-ghostty.terminfo.b64<br>terminfo dump<br>(from the ghostty setting)"]
     end
 
     subgraph system["system scripts (root)"]
@@ -664,6 +703,7 @@ flowchart TD
         s3["mise-system.sh<br>install mise from apt repo"]
         s4["neovim-system.sh<br>install neovim from the release tarball<br>+ tree-sitter-cli, build-essential,<br>luarocks, luajit and cargo"]
         s4b["packages-system.sh<br>tig, postgresql, libpq-dev,<br>libnss3-tools from the archive"]
+        s4c["ghostty-terminfo-system.sh<br>tic -x the xterm-ghostty entry<br>into /usr/share/terminfo"]
         s5["no-auto-upgrades-system.sh<br>mask the apt-daily timers and<br>unattended-upgrades.service"]
     end
 
@@ -684,7 +724,7 @@ flowchart TD
     end
 
     data --> system
-    s0 --> s0b --> s1 --> s1b --> s1c --> s2 --> s3 --> s4 --> s4b --> s5
+    s0 --> s0b --> s1 --> s1b --> s1c --> s2 --> s3 --> s4 --> s4b --> s4c --> s5
     system --> user
     u1 --> u1b --> u2 --> u3 --> u4 --> u5 --> u5b --> u6
     user --> probes

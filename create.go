@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -26,7 +28,7 @@ Usage: devvm create [name] [-create-ssh-key=false] [-dotfiles REPO|-no-dotfiles]
   private key and ssh config into the guest, and provisioning fetches
   known_hosts.
 - Reads ~/.config/dev-vm/settings.json for the "dotfiles", "cpus", "memory",
-  "disk", "clone" and "mkcert" keys: the "default" block applies to every VM, and
+  "disk", "clone", "mkcert" and "ghostty" keys: the "default" block applies to every VM, and
   "vms".<name> overrides it key by key for this one.
 - With dotfiles enabled, provisioning clones the bare repo to ~/.dotfiles in
   the guest and checks it out over $HOME. The repo comes from -dotfiles or
@@ -41,6 +43,9 @@ Usage: devvm create [name] [-create-ssh-key=false] [-dotfiles REPO|-no-dotfiles]
   (rootCA.pem and rootCA-key.pem from mkcert -CAROOT) into the guest CAROOT
   and trusts rootCA.pem in the guest system store through the template's
   caCerts.files.
+- With "ghostty": true in the settings, captures the xterm-ghostty terminfo
+  entry with Homebrew's infocmp (brew install ncurses; the macOS built-in is
+  too old for extended capabilities) and compiles it in the guest.
 - Records VM metadata (GitHub key id, key paths) in ~/.config/dev-vm/state.json.
 
 `
@@ -58,11 +63,30 @@ var defaultResources = resources{cpus: 2, memory: 2, disk: 50}
 // guest one. The key comes along so the guest can issue its own certificates.
 var caFiles = []string{"rootCA.pem", "rootCA-key.pem"}
 
+const (
+	// ghosttyTerm is the terminfo entry Ghostty sets TERM to.
+	ghosttyTerm = "xterm-ghostty"
+	// ghosttyTerminfoDir is where the macOS app bundle keeps its terminfo
+	// database, for the case where devvm runs outside Ghostty and TERMINFO is
+	// therefore unset.
+	ghosttyTerminfoDir = "/Applications/Ghostty.app/Contents/Resources/terminfo"
+)
+
 // cloneRepo is one repository the guest clones, with the directory it goes
 // under. repo is "<org>/<name>".
 type cloneRepo struct {
 	basedir string
 	repo    string
+}
+
+// guestFiles is what the host contributes to the template tree at create time,
+// as opposed to the embedded assets: the private key path, and the payloads the
+// settings turn on. An empty caroot or terminfo means the setting is off.
+type guestFiles struct {
+	key      string
+	clones   []cloneRepo
+	caroot   string
+	terminfo string
 }
 
 func cmdCreate(argv []string) {
@@ -96,6 +120,7 @@ func cmdCreate(argv []string) {
 	dotfiles := resolveDotfiles(dotfilesRepo, noDotfiles, config)
 	clones := settingsClones(config)
 	caroot := resolveCAROOT(config)
+	terminfo := resolveGhosttyTerminfo(config)
 	if vmExists(name) {
 		die("VM %q already exists; run: devvm delete %s", name, name)
 	}
@@ -129,8 +154,16 @@ func cmdCreate(argv []string) {
 	if caroot != "" {
 		fmt.Printf("copying the mkcert root CA from %s\n", caroot)
 	}
+	if terminfo != "" {
+		fmt.Printf("installing the %s terminfo entry\n", ghosttyTerm)
+	}
 	fmt.Printf("VM size %d vCPU, %dGiB RAM, %dGiB disk\n", res.cpus, res.memory, res.disk)
-	startVM(name, dotfiles, res, key, clones, caroot)
+	startVM(name, dotfiles, res, guestFiles{
+		key:      key,
+		clones:   clones,
+		caroot:   caroot,
+		terminfo: terminfo,
+	})
 	putVM(name, map[string]any{
 		"template":    "embedded:lima/dev-vm.yaml",
 		"started_at":  now(),
@@ -211,6 +244,57 @@ func hostCAROOT() string {
 		}
 	}
 	return caroot
+}
+
+// resolveGhosttyTerminfo returns the xterm-ghostty terminfo source when the
+// "ghostty" setting is on, and "" otherwise.
+func resolveGhosttyTerminfo(config vmConfig) string {
+	if !ghosttyEnabled(config) {
+		return ""
+	}
+	return hostTerminfo()
+}
+
+func ghosttyEnabled(config vmConfig) bool {
+	return config.Ghostty != nil && *config.Ghostty
+}
+
+// hostTerminfo dumps the xterm-ghostty entry with Homebrew's infocmp. The
+// macOS built-in is ncurses 6.0 from 2015 and mangles the extended (-x)
+// capabilities the entry is largely made of, so the Homebrew build is
+// required rather than preferred.
+func hostTerminfo() string {
+	infocmp := filepath.Join(brewPrefix("ncurses"), "bin", "infocmp")
+	if !fileExists(infocmp) {
+		die("no %s; run: brew install ncurses", infocmp)
+	}
+	// TERMINFO points at the app bundle when devvm runs inside Ghostty; when
+	// it does not, name the bundle so the entry is still found.
+	out, err := exec.Command(infocmp, "-x", ghosttyTerm).Output()
+	if err != nil {
+		cmd := exec.Command(infocmp, "-x", ghosttyTerm)
+		cmd.Env = append(os.Environ(), "TERMINFO="+ghosttyTerminfoDir)
+		out, err = cmd.Output()
+	}
+	if err != nil {
+		die("infocmp -x %s failed: %v; is Ghostty installed?", ghosttyTerm, err)
+	}
+	if len(out) == 0 {
+		die("infocmp -x %s printed nothing", ghosttyTerm)
+	}
+	return string(out)
+}
+
+// brewPrefix resolves a Homebrew formula prefix, e.g. /opt/homebrew/opt/ncurses.
+func brewPrefix(formula string) string {
+	out, err := exec.Command("brew", "--prefix", formula).Output()
+	if err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			die("brew not found; install Homebrew, then: brew install %s", formula)
+		}
+		die("brew --prefix %s failed: %v", formula, err)
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // settingsClones flattens the "clone" setting to one entry per repository.
@@ -341,7 +425,7 @@ func registerKey(name, title, pub string) int64 {
 // startVM materializes the embedded template tree into a temp directory —
 // limactl resolves provision file.url paths relative to the template — drops
 // the private key at tmp/default where the template expects it, and boots.
-func startVM(name, dotfiles string, res resources, key string, clones []cloneRepo, caroot string) {
+func startVM(name, dotfiles string, res resources, files guestFiles) {
 	dir, err := os.MkdirTemp("", "dev-vm-")
 	if err != nil {
 		die("cannot create temp dir: %v", err)
@@ -366,9 +450,9 @@ func startVM(name, dotfiles string, res resources, key string, clones []cloneRep
 		die("cannot materialize template: %v", err)
 	}
 
-	keyData, err := os.ReadFile(key)
+	keyData, err := os.ReadFile(files.key)
 	if err != nil {
-		die("cannot read %s: %v", key, err)
+		die("cannot read %s: %v", files.key, err)
 	}
 	if err := os.MkdirAll(filepath.Join(dir, "tmp"), 0o700); err != nil {
 		die("cannot materialize template: %v", err)
@@ -376,7 +460,13 @@ func startVM(name, dotfiles string, res resources, key string, clones []cloneRep
 	if err := os.WriteFile(filepath.Join(dir, "tmp", "default"), keyData, 0o600); err != nil {
 		die("cannot materialize template: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "tmp", "clone-list"), []byte(cloneList(clones)), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "tmp", "clone-list"), []byte(cloneList(files.clones)), 0o600); err != nil {
+		die("cannot materialize template: %v", err)
+	}
+	// Same for the terminfo source, empty when the "ghostty" setting is off:
+	// ghostty-terminfo-system.sh skips an empty file.
+	if err := os.WriteFile(filepath.Join(dir, "tmp", ghosttyTerm+".terminfo.b64"),
+		[]byte(terminfoB64(files.terminfo)), 0o600); err != nil {
 		die("cannot materialize template: %v", err)
 	}
 	// The mkcert CA files are staged the same way, empty when the setting is
@@ -384,10 +474,10 @@ func startVM(name, dotfiles string, res resources, key string, clones []cloneRep
 	// skips an empty file.
 	for _, f := range caFiles {
 		var data []byte
-		if caroot != "" {
-			data, err = os.ReadFile(filepath.Join(caroot, f))
+		if files.caroot != "" {
+			data, err = os.ReadFile(filepath.Join(files.caroot, f))
 			if err != nil {
-				die("cannot read %s: %v", filepath.Join(caroot, f), err)
+				die("cannot read %s: %v", filepath.Join(files.caroot, f), err)
 			}
 		}
 		if err := os.WriteFile(filepath.Join(dir, "tmp", f), data, 0o600); err != nil {
@@ -396,8 +486,25 @@ func startVM(name, dotfiles string, res resources, key string, clones []cloneRep
 	}
 
 	limactlRun("start", "--tty=false", "--name", name,
-		"--set", startSet(res, dotfiles, caroot),
+		"--set", startSet(res, dotfiles, files.caroot),
 		filepath.Join(dir, "dev-vm.yaml"))
+}
+
+// terminfoB64 encodes the terminfo source for its `mode: data` entry, in
+// 76-column lines. The encoding is not cosmetic: Lima runs data content
+// through a Go template on the host, and the entry's acsc capability contains
+// a literal `{{`, which the template parser rejects. base64 keeps the payload
+// out of its way; ghostty-terminfo-system.sh decodes it.
+func terminfoB64(src string) string {
+	if src == "" {
+		return ""
+	}
+	var out strings.Builder
+	for line := range slices.Chunk([]byte(base64.StdEncoding.EncodeToString([]byte(src))), 76) {
+		out.Write(line)
+		out.WriteByte('\n')
+	}
+	return out.String()
 }
 
 // startSet is the yq expression patching the template at creation time. The

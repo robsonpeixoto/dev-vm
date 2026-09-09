@@ -243,9 +243,11 @@ matches on output).
   "default": {"cpus": 8, "memory": 16, "disk": 100,
               "dotfiles": "git@github.com:user/dotfiles.git",
               "mkcert": true,
+              "ghostty": true,
               "clone": [{"org": "gnosispay", "basedir": "${HOME}/Code/gnosispay",
                          "repositories": ["gp-v2"]}]},
-  "vms": {"new-vm": {"cpus": 4, "memory": 4, "clone": [], "mkcert": false}}
+  "vms": {"new-vm": {"cpus": 4, "memory": 4, "clone": [],
+                     "mkcert": false, "ghostty": false}}
 }
 ```
 
@@ -359,6 +361,37 @@ the guest, so a certificate issued on either side is trusted on both.
 - Nothing runs `mkcert -install` in the guest: `caCerts` covers the system
   store, and the browser NSS store is the operator's business
   (`libnss3-tools` is installed by `packages-system.sh`).
+
+### ghostty terminfo
+
+`"ghostty": true` compiles the `xterm-ghostty` terminfo entry in the guest, so
+the `TERM` Ghostty exports survives `limactl shell` and ssh.
+
+- `hostTerminfo` (`create.go`) runs `$(brew --prefix ncurses)/bin/infocmp -x
+  xterm-ghostty`. **Homebrew's infocmp, not the macOS one**: `/usr/bin/infocmp`
+  is ncurses 6.0.20150808 and mangles the extended (`-x`) capabilities that are
+  most of the entry. A missing binary is a `die` naming
+  `brew install ncurses`.
+- The entry is looked up through `TERMINFO`, which Ghostty sets to its app
+  bundle. `create` may run outside Ghostty, so a failed dump is retried with
+  `TERMINFO=/Applications/Ghostty.app/Contents/Resources/terminfo`.
+- The dump is staged **base64-encoded**, via `terminfoB64`. That is not
+  cosmetic: Lima runs `mode: data` content *and* provision scripts through a Go
+  template on the host, and the entry's `acsc` capability lists the ACS pairs
+  for the box-drawing characters, doubled braces among them. The template
+  parser reads those as an action and rejects the file
+  (`unexpected "|" in command`); Lima logs
+  `Couldn't process data content as a template` and the payload survives only
+  by falling back to the unparsed text. The same trap caught a *comment* in
+  `ghostty-terminfo-system.sh` that quoted the braces literally — that script
+  failed to parse with `unterminated raw quoted string`. Never put doubled
+  braces in a provision script, comments included.
+- `scripts/ghostty-terminfo-system.sh` is a **system** script (after
+  `packages-system.sh`): `base64 -d | tic -x -o /usr/share/terminfo -`, so root
+  and sudo shells resolve the entry too, not just the login user. It installs
+  `ncurses-bin` when `tic` is missing, and skips an empty staged file.
+- Nothing sets `TERM` in the guest; ssh and `limactl shell` carry the host
+  value.
 
 ### VM size
 

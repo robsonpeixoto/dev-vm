@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"flag"
 	"io"
 	"os"
@@ -295,6 +296,69 @@ func TestMkcertEnabled(t *testing.T) {
 				t.Errorf("mkcertEnabled() = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestGhosttyEnabled(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		settings string
+		vm       string
+		want     bool
+	}{
+		{
+			name: "no settings",
+			vm:   "myvm",
+		},
+		{
+			name:     "default block",
+			settings: `{"default": {"ghostty": true}}`,
+			vm:       "myvm",
+			want:     true,
+		},
+		{
+			name:     "vm block turns ghostty off",
+			settings: `{"default": {"ghostty": true}, "vms": {"myvm": {"ghostty": false}}}`,
+			vm:       "myvm",
+		},
+		{
+			name:     "vm block turns ghostty on",
+			settings: `{"vms": {"myvm": {"ghostty": true}}}`,
+			vm:       "myvm",
+			want:     true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withSettings(t, tc.settings)
+			if got := ghosttyEnabled(loadSettings(tc.vm)); got != tc.want {
+				t.Errorf("ghosttyEnabled() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestTerminfoB64(t *testing.T) {
+	if got := terminfoB64(""); got != "" {
+		t.Errorf("terminfoB64(\"\") = %q, want the empty string", got)
+	}
+	// The acsc capability of the real entry carries the braces that make the
+	// encoding necessary: Lima templates data content on the host.
+	src := "xterm-ghostty|ghostty,\n\tacsc=++\\,\\,--..00``zz{{||}}~~,\n"
+	got := terminfoB64(src)
+	if strings.Contains(got, "{{") {
+		t.Errorf("terminfoB64() = %q, want no Go template braces", got)
+	}
+	for line := range strings.Lines(got) {
+		if n := len(strings.TrimSuffix(line, "\n")); n > 76 {
+			t.Errorf("terminfoB64() line %q is %d characters, want at most 76", line, n)
+		}
+	}
+	decoded, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(got, "\n", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(decoded) != src {
+		t.Errorf("decoded terminfoB64() = %q, want %q", decoded, src)
 	}
 }
 

@@ -146,6 +146,19 @@ provision:
     owner: "{{.User}}"
     permissions: "600"
     overwrite: true
+  # xterm-ghostty terminfo source, compiled by ghostty-terminfo-system.sh.
+  # devvm create dumps it with Homebrew's infocmp into the temp tree it starts
+  # from when settings.json has "ghostty": true, and writes an empty file
+  # otherwise. base64, because Lima runs data content through a Go template and
+  # the entry's acsc capability contains doubled braces it would read as an
+  # action.
+  - mode: data
+    file:
+      url: tmp/xterm-ghostty.terminfo.b64
+    path: /usr/local/lib/dev-vm/xterm-ghostty.terminfo.b64
+    owner: "root:root"
+    permissions: "644"
+    overwrite: true
   # First system script: the guest must be reachable on every port at its own IP
   # before anything else configures itself.
   - mode: system
@@ -177,6 +190,9 @@ provision:
   - mode: system
     file:
       url: scripts/packages-system.sh
+  - mode: system
+    file:
+      url: scripts/ghostty-terminfo-system.sh
   - mode: system
     file:
       url: scripts/no-auto-upgrades-system.sh
