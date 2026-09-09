@@ -1,3 +1,3 @@
 module github.com/robsonpeixoto/dev-vm
 
-go 1.26
+go 1.27.1

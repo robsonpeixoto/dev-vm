@@ -23,7 +23,8 @@ See [CLAUDE.md](CLAUDE.md) for how Lima provisioning works in detail.
 - macOS with [Lima](https://lima-vm.io) 2.0.0+ (`limactl`).
 - [GitHub CLI](https://cli.github.com) (`gh`), logged in with the
   `admin:public_key` scope: `gh auth refresh -h github.com -s admin:public_key`.
-- Go, to run the CLI with `go run .` (not needed for a released binary).
+- Go 1.27.1+ (the `go` line in `go.mod`), to run the CLI with `go run .` (not
+  needed for a released binary).
 
 ## Install
 
