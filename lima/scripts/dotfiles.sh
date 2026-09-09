@@ -5,6 +5,9 @@
 # idempotent: re-checking out an already-checked-out tree changes nothing.
 # Files that already exist and would be clobbered are moved under
 # ~/tmp/config-backup keeping their relative path.
+# The repo owns ~/.ssh/config and is responsible for loading every ssh config
+# this VM ships: it must `Include ~/.ssh/config.d/*.conf` for the provisioned
+# GitHub identity to apply.
 set -eu
 
 repo=${PARAM_DOTFILES_REPO:-}
@@ -37,20 +40,5 @@ fi
 
 config config --local status.showUntrackedFiles no
 config config --local branch.main.remote origin
-
-# The checkout may have replaced ~/.ssh/config, which `mode: data` provisioned
-# with the GitHub identity this VM's key depends on. ssh keeps the first value
-# it sees for a keyword, so prepend that stanza to whatever the dotfiles ship.
-stanza=$HOME/.ssh/lima-github.conf
-conf=$HOME/.ssh/config
-if [ -f "$stanza" ]; then
-    marker=$(head -1 "$stanza")
-    if ! grep -qxF "$marker" "$conf" 2>/dev/null; then
-        touch "$conf"
-        cat "$stanza" "$conf" >"$conf.new"
-        mv "$conf.new" "$conf"
-        chmod 600 "$conf"
-    fi
-fi
 
 git --git-dir="${HOME}/.dotfiles/" --work-tree="${HOME}" branch --set-upstream-to=origin/main main

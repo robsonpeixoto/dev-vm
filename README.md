@@ -312,8 +312,16 @@ name for VMs created before titles were qualified.
 - Host: `~/.config/dev-vm/keys/<name>` (dir 0700, private key 0600, enforced
   on every create). The host's `~/.ssh` is never read; Lima does not load
   `~/.ssh/*.pub` into the guest.
-- Guest: the private key is uploaded to `~/.ssh/id_ed25519`; `~/.ssh/config`
-  pins it for github.com with `IdentitiesOnly yes`.
+- Guest: the private key is uploaded to `~/.ssh/id_ed25519`, and the stanza
+  pinning it for github.com with `IdentitiesOnly yes` is installed as
+  `~/.ssh/config.d/10-github.conf`.
+- **`~/.ssh/config` is never written by this repo.** Loading the drop-ins is
+  the dotfiles' job: the repo's `~/.ssh/config` must carry
+  `Include ~/.ssh/config.d/*.conf`, near the top, since ssh keeps the first
+  value it sees for a keyword. Without that line the drop-in is inert — git
+  over SSH still works, because ssh tries `~/.ssh/id_ed25519` by default, but
+  `IdentitiesOnly yes` is not in effect, so a dotfiles-supplied agent or extra
+  key can be offered to GitHub first.
 - `delete` deletes the GitHub key, the local pair, the VM and the state entry,
   in that order, after confirming the VM name (`-force` skips the prompt). The
   irreversible step is last, and the token scope is checked first, so a `gh`
@@ -525,12 +533,15 @@ user), then readiness probes gate `limactl start`.
    [upgrading the guest](#upgrading-the-guest).
 10. **`ssh-known-hosts.sh`** — rewrites `~/.ssh/known_hosts` from live
    `ssh-keyscan github.com` output.
-11. **`omz-user.sh`** — installs oh-my-zsh (skipped if `~/.oh-my-zsh` exists).
-12. **`dotfiles.sh`** — clones the bare repo to `~/.dotfiles`, checks it out
-   over `$HOME` (clobbered files move to `~/tmp/config-backup`), and prepends
-   the GitHub ssh stanza back onto `~/.ssh/config`. No-op without
-   `DOTFILES_REPO`.
-13. **`docker-user.sh`** — installs the pasta override into
+11. **`ssh-config-user.sh`** — creates `~/.ssh/config.d` and installs the
+   staged GitHub stanza as `10-github.conf`. It does not touch
+   `~/.ssh/config`; see [GitHub SSH key](#github-ssh-key).
+12. **`omz-user.sh`** — installs oh-my-zsh (skipped if `~/.oh-my-zsh` exists).
+13. **`dotfiles.sh`** — clones the bare repo to `~/.dotfiles` and checks it out
+   over `$HOME` (clobbered files move to `~/tmp/config-backup`). No-op without
+   `DOTFILES_REPO`. The repo owns `~/.ssh/config`, so it is also responsible
+   for including the drop-ins above.
+14. **`docker-user.sh`** — installs the pasta override into
    `~/.config/systemd/user/docker.service.d/`, then
    `dockerd-rootless-setuptool.sh install` and selects the
    `rootless` context. The daemon comes up with pasta networking instead of
@@ -538,13 +549,13 @@ user), then readiness probes gate `limactl start`.
    `DOCKERD_ROOTLESS_ROOTLESSKIT_NET=pasta` (with its `implicit` port driver)
    for faster container egress. Still experimental upstream — drop the override
    entry from `lima/dev-vm.yaml` and recreate to fall back to slirp4netns.
-14. **`mise-user.sh`** — activates mise in `~/.zshrc` (unless the oh-my-zsh
+15. **`mise-user.sh`** — activates mise in `~/.zshrc` (unless the oh-my-zsh
    mise plugin already does), `mise trust --all`, `mise install`.
 
 ```mermaid
 flowchart TD
     subgraph data["data files (copied by root)"]
-        d1["~/.ssh/id_ed25519 + config + lima-github.conf<br>GitHub SSH access"]
+        d1["~/.ssh/id_ed25519<br>GitHub SSH key<br>ssh-github.conf<br>staged config.d drop-in"]
         d2["/etc/profile.d/docker-host.sh<br>DOCKER_HOST for libraries<br>/etc/profile.d/dev-vm.sh<br>DEV_VM + DEV_VM_NAME markers"]
         d3["apt.conf.d/99dev-vm-no-auto-upgrades<br>APT::Periodic all zero"]
         d4["install-neovim<br>neovim tarball installer<br>(boot + manual upgrade)"]

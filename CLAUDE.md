@@ -251,10 +251,19 @@ Empty param means the script exits 0 without doing anything.
   it is exported globally from `/etc/profile.d/docker-host.sh`, reached by
   login shells through `/etc/profile` (zsh via `/etc/zsh/zprofile`) and by
   every other zsh through the line `zsh-system.sh` adds to `/etc/zsh/zshenv`.
-- A dotfiles repo carrying `.ssh/config` replaces the provisioned one, so
-  `dotfiles.sh` prepends the GitHub stanza back from
-  `~/.ssh/lima-github.conf` (same `mode: data` payload,
-  `lima/files/ssh-github.conf`); ssh keeps the first value per keyword.
+- **The dotfiles own `~/.ssh/config` and are responsible for loading every ssh
+  config the VM ships.** Nothing in this repo writes that file. The GitHub
+  identity (`lima/files/ssh-github.conf`) is staged by `mode: data` at
+  `/usr/local/lib/dev-vm/ssh-github.conf` and installed by
+  `scripts/ssh-config-user.sh` as `~/.ssh/config.d/10-github.conf`, so the
+  dotfiles' own config must carry `Include ~/.ssh/config.d/*.conf` — near the
+  top, since ssh keeps the first value per keyword. The directory is created in
+  the `user` script, not by `mode: data`: data mode creates missing parents as
+  root, which would leave the user unable to drop its own files in.
+- Without that `Include` line (or without dotfiles at all) the drop-in is
+  inert. The github probe still passes — ssh tries `~/.ssh/id_ed25519` by
+  default and `git@github.com` supplies the user — but `IdentitiesOnly yes` is
+  not in effect.
 
 ### VM size
 

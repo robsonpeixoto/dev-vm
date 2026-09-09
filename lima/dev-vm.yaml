@@ -40,21 +40,16 @@ provision:
     owner: "{{.User}}"
     permissions: "600"
     overwrite: true
+  # The GitHub stanza is staged, then installed as a ~/.ssh/config.d drop-in by
+  # ssh-config-user.sh. Nothing here writes ~/.ssh/config: that file belongs to
+  # the dotfiles, which are responsible for loading every ssh config with
+  # `Include ~/.ssh/config.d/*.conf`.
   - mode: data
     file:
       url: files/ssh-github.conf
-    path: "{{.Home}}/.ssh/config"
-    owner: "{{.User}}"
-    permissions: "600"
-    overwrite: true
-  # Same stanza kept as its own file: a dotfiles checkout may ship its own
-  # ~/.ssh/config, and dotfiles.sh puts this back on top of it.
-  - mode: data
-    file:
-      url: files/ssh-github.conf
-    path: "{{.Home}}/.ssh/lima-github.conf"
-    owner: "{{.User}}"
-    permissions: "600"
+    path: /usr/local/lib/dev-vm/ssh-github.conf
+    owner: "root:root"
+    permissions: "644"
     overwrite: true
   # Rootless Docker socket for libraries that read DOCKER_HOST directly. Global,
   # not a dotfile: /etc/profile.d covers login shells (zsh reaches it through
@@ -155,6 +150,10 @@ provision:
   - mode: user
     file:
       url: scripts/ssh-known-hosts.sh
+  # Same reason: the drop-in and its directory are user state under ~/.ssh.
+  - mode: user
+    file:
+      url: scripts/ssh-config-user.sh
   # Before dotfiles.sh: the installer writes a stock ~/.zshrc that a dotfiles
   # checkout then replaces with the real one.
   - mode: user
