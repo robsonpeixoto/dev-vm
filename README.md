@@ -491,8 +491,10 @@ user), then readiness probes gate `limactl start`.
    (staged at `/usr/local/lib/dev-vm/docker-rootless-override.conf`;
    `docker-user.sh` installs it into `~/.config/systemd/user/`), the
    unattended-upgrades policy in
-   `/etc/apt/apt.conf.d/`, the open-ports sysctl
-   (`/etc/sysctl.d/99-dev-vm.conf`), and the maintenance cron: the runner
+   `/etc/apt/apt.conf.d/`, the sysctls
+   (`/etc/sysctl.d/99-dev-vm.conf`: unprivileged ports from 0 and
+   `net.ipv4.ping_group_range`, both of which plain mode stops Lima from
+   setting itself), and the maintenance cron: the runner
    `/usr/local/sbin/dev-vm-cron`, its jobs
    `/usr/local/lib/dev-vm/cron.d/05-upgrade-security`, `10-update-docker`,
    `11-update-git`, `12-update-mise`, `15-update-neovim` and `20-prune-docker`,
@@ -514,21 +516,30 @@ user), then readiness probes gate `limactl start`.
    `sysctl --system` to apply `net.ipv4.ip_unprivileged_port_start=0`. Rootless
    Docker's own rules live in its user network namespace and are untouched. See
    [networking](#networking).
-3. **`docker-system.sh`** — installs Docker Engine from Docker's apt repo
+3. **`rootless-base-system.sh`** — restores the rootless prerequisites that
+   plain mode drops. Lima's `boot.sh` runs `boot.essential.Linux/*` and then
+   skips every `boot.Linux/*` script, including
+   `boot.Linux/20-rootless-base.sh`, so this script does its work instead:
+   adds the guest user's `/etc/subuid` and `/etc/subgid` ranges (without them
+   `dockerd-rootless-setuptool.sh` fails with `could not find <user> in
+   /etc/subuid`), drops `Delegate=yes` into
+   `/etc/systemd/system/user@.service.d/`, starts `systemd-logind` and enables
+   linger for the user so the daemon's systemd user instance survives logout.
+4. **`docker-system.sh`** — installs Docker Engine from Docker's apt repo
    (with `docker-ce-rootless-extras` and `passt`) when any of it is missing,
    then masks the system-wide `docker`/`containerd` units so only the rootless
    daemon exists. Upgrades come from `10-update-docker`.
-4. **`git-system.sh`** — installs git from the git-core PPA
+5. **`git-system.sh`** — installs git from the git-core PPA
    (`ppa:git-core/ppa`, upstream releases) when the PPA or git is missing;
    upgrades come from `11-update-git`.
-5. **`zsh-system.sh`** — installs zsh when missing, `chsh` the guest
+6. **`zsh-system.sh`** — installs zsh when missing, `chsh` the guest
    user to zsh, and
    sources `/etc/profile.d/docker-host.sh` and `/etc/profile.d/dev-vm.sh` from
    `/etc/zsh/zshenv` so non-login zsh (`limactl shell <name> <cmd>`) also gets
    `DOCKER_HOST`, `DEV_VM` and `DEV_VM_NAME`.
-6. **`mise-system.sh`** — installs mise from its apt repo when it is missing;
+7. **`mise-system.sh`** — installs mise from its apt repo when it is missing;
    upgrades come from `12-update-mise`.
-7. **`neovim-system.sh`** — installs `curl` plus the plugin build toolchain the
+8. **`neovim-system.sh`** — installs `curl` plus the plugin build toolchain the
    tarball does not ship (`tree-sitter-cli` and `build-essential` for
    `nvim-treesitter` parsers, `luarocks` with `luajit` for Lua rocks, `cargo`
    for Rust-based plugins) when any of it is missing, then —
@@ -538,20 +549,20 @@ user), then readiness probes gate `limactl start`.
    picked from `uname -m`) and links it at `/usr/local/bin/nvim`. The same
    installer backs the `15-update-neovim` cron job, so first boot and upgrade
    share one code path.
-8. **`unattended-upgrades-system.sh`** — installs `unattended-upgrades` and
+9. **`unattended-upgrades-system.sh`** — installs `unattended-upgrades` and
    masks its `apt-daily` timers, leaving `dev-vm-cron` the only apt scheduler;
    `cron.d/05-upgrade-security` calls the binary, so Ubuntu security updates
    (kernel, openssl, openssh) land without anyone asking. Policy lives in
    `/etc/apt/apt.conf.d/52dev-vm-unattended-upgrades`: security pockets only,
    no automatic reboot, unused kernels and dependencies removed.
-9. **`ssh-known-hosts.sh`** — rewrites `~/.ssh/known_hosts` from live
+10. **`ssh-known-hosts.sh`** — rewrites `~/.ssh/known_hosts` from live
    `ssh-keyscan github.com` output.
-10. **`omz-user.sh`** — installs oh-my-zsh (skipped if `~/.oh-my-zsh` exists).
-11. **`dotfiles.sh`** — clones the bare repo to `~/.dotfiles`, checks it out
+11. **`omz-user.sh`** — installs oh-my-zsh (skipped if `~/.oh-my-zsh` exists).
+12. **`dotfiles.sh`** — clones the bare repo to `~/.dotfiles`, checks it out
    over `$HOME` (clobbered files move to `~/tmp/config-backup`), and prepends
    the GitHub ssh stanza back onto `~/.ssh/config`. No-op without
    `DOTFILES_REPO`.
-12. **`docker-user.sh`** — installs the pasta override into
+13. **`docker-user.sh`** — installs the pasta override into
    `~/.config/systemd/user/docker.service.d/`, then
    `dockerd-rootless-setuptool.sh install` and selects the
    `rootless` context. The daemon comes up with pasta networking instead of
@@ -559,7 +570,7 @@ user), then readiness probes gate `limactl start`.
    `DOCKERD_ROOTLESS_ROOTLESSKIT_NET=pasta` (with its `implicit` port driver)
    for faster container egress. Still experimental upstream — drop the override
    entry from `lima/dev-vm.yaml` and recreate to fall back to slirp4netns.
-13. **`mise-user.sh`** — activates mise in `~/.zshrc` (unless the oh-my-zsh
+14. **`mise-user.sh`** — activates mise in `~/.zshrc` (unless the oh-my-zsh
    mise plugin already does), `mise trust --all`, `mise install`.
 
 ```mermaid
@@ -575,6 +586,7 @@ flowchart TD
 
     subgraph system["system scripts (root)"]
         s0["firewall-system.sh<br>drop filter tables, mask ufw,<br>apply the open-ports sysctl"]
+        s0b["rootless-base-system.sh<br>subuid/subgid, cgroup delegation, linger<br>(plain mode skips Lima's own)"]
         s1["docker-system.sh<br>Docker packages, mask system daemon"]
         s1b["git-system.sh<br>install git from the git-core PPA"]
         s2["zsh-system.sh<br>install zsh, set login shell,<br>hook both profile.d files into /etc/zsh/zshenv"]
@@ -597,7 +609,7 @@ flowchart TD
     end
 
     data --> system
-    s0 --> s1 --> s1b --> s2 --> s3 --> s4 --> s5
+    s0 --> s0b --> s1 --> s1b --> s2 --> s3 --> s4 --> s5
     system --> user
     u1 --> u2 --> u3 --> u4 --> u5
     user --> probes

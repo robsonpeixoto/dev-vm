@@ -104,6 +104,31 @@ already-done state (`|| true`), rewrite files rather than appending.
 a failing provision script does not abort the boot, it just makes
 `limactl start` report a provisioning failure.
 
+### Plain mode skips every `boot.Linux/*` script
+
+`plain: true` (this repo uses it) makes `boot.sh` run
+`boot.essential.Linux/*` and then log *"Plain mode. Skipping to run
+non-essential boot scripts"* — the whole `boot.Linux/*` set never executes,
+while `data`/`yq`/`system`/`user` provisioning and the probes still do. So
+anything the guest gets from those scripts is this repo's job:
+
+- `boot.Linux/20-rootless-base.sh` — `/etc/subuid` + `/etc/subgid` ranges,
+  `Delegate=yes` for `user@.service`, `systemd-logind` started,
+  `loginctl enable-linger`, and the `ip_unprivileged_port_start` /
+  `ping_group_range` sysctls. Rootless Docker needs all of it:
+  `dockerd-rootless-setuptool.sh` fails with `could not find <user> in
+  /etc/subuid` without the subid ranges, and without linger the daemon's
+  systemd user instance (and `/run/user/<uid>`, which boot.sh waits for before
+  any `user` script) goes away with the last session. Replaced by
+  `scripts/rootless-base-system.sh` plus `files/sysctl/99-dev-vm.conf`.
+- `boot.Linux/09-host-dns-setup.sh` — the `LIMADNS` chains. Not needed here:
+  `vzNAT` hands the guest DNS over DHCP.
+- `boot.Linux/30-install-packages.sh` — so `mode: dependency` entries never
+  run either. This repo has none; everything installs from `system` scripts.
+- `boot.Linux/07-etc-environment.sh` — the template's `env:` map is never
+  written to `/etc/environment`. Ship env vars as `/etc/profile.d` files
+  (`docker-host.sh`, `dev-vm.sh`) instead.
+
 ### Modes
 
 | Mode | Runs as | When | Payload field |

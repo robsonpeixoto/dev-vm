@@ -192,6 +192,11 @@ provision:
   - mode: system
     file:
       url: scripts/firewall-system.sh
+  # Restores what plain mode drops: subuid/subgid, cgroup delegation and
+  # linger, all prerequisites of the rootless daemon set up below.
+  - mode: system
+    file:
+      url: scripts/rootless-base-system.sh
   - mode: system
     file:
       url: scripts/docker-system.sh
