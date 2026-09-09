@@ -242,9 +242,10 @@ matches on output).
 {
   "default": {"cpus": 8, "memory": 16, "disk": 100,
               "dotfiles": "git@github.com:user/dotfiles.git",
+              "mkcert": true,
               "clone": [{"org": "gnosispay", "basedir": "${HOME}/Code/gnosispay",
                          "repositories": ["gp-v2"]}]},
-  "vms": {"new-vm": {"cpus": 4, "memory": 4, "clone": []}}
+  "vms": {"new-vm": {"cpus": 4, "memory": 4, "clone": [], "mkcert": false}}
 }
 ```
 
@@ -327,6 +328,37 @@ GitHub org:
   create time like everything else in the template. A per-VM `"clone": []`
   clones nothing for that VM while the default block stays intact for the
   others.
+
+### mkcert root CA
+
+`"mkcert": true` in the resolved settings block copies the host mkcert CA into
+the guest, so a certificate issued on either side is trusted on both.
+
+- `resolveCAROOT` (`create.go`) runs `mkcert -CAROOT` on the host and requires
+  both `rootCA.pem` and `rootCA-key.pem` to be there — the setting asked for
+  the CA, so a missing binary or a missing file is a `die`, not a silent skip.
+  The key is copied along with the certificate on purpose: without it the guest
+  can trust the CA but not issue from it.
+- `startVM` writes both files into `tmp/` of the materialized template tree,
+  the same trick as the private key and the clone list, and two unconditional
+  `mode: data` entries stage them at `/usr/local/lib/dev-vm/`. With the setting
+  off the files are written empty, which `mkcert-user.sh` treats as "do
+  nothing". `rootCA-key.pem` is staged `owner: "{{.User}}"`, `permissions: 600`
+  — a root-only file would be unreadable by the user script that installs it.
+- `scripts/mkcert-user.sh` runs after `mise-user.sh` (mkcert usually comes from
+  mise, so by then `mkcert -CAROOT` can answer for itself) and installs the
+  pair into `$CAROOT`, else `${XDG_DATA_HOME:-$HOME/.local/share}/mkcert`.
+  It must not write into `$HOME` through `mode: data`: `~/.local/share` also
+  holds mise's own tree, and data mode would create it root-owned.
+- `startSet` adds `.caCerts.files = ["<host CAROOT>/rootCA.pem"]`, which
+  cloud-init installs into `/usr/local/share/ca-certificates` and trusts with
+  `update-ca-certificates`. That is a **host** path stored in the instance's
+  `lima.yaml`, and the hostagent re-reads it on every start when it regenerates
+  `cidata.iso` — so the temp tree copy would not do, and removing the host
+  CAROOT later breaks `devvm start` for that VM.
+- Nothing runs `mkcert -install` in the guest: `caCerts` covers the system
+  store, and the browser NSS store is the operator's business
+  (`libnss3-tools` is installed by `packages-system.sh`).
 
 ### VM size
 

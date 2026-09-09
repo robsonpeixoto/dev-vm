@@ -101,7 +101,8 @@ release.
 4. Optional — settings.json. `~/.config/dev-vm/settings.json` holds a
    `default` block that applies to every VM, plus a `vms` block keyed by VM
    name that overrides it key by key. `clone` lists repositories to clone in
-   the guest, per GitHub org, with the directory they go under:
+   the guest, per GitHub org, with the directory they go under, and `mkcert`
+   copies the host mkcert root CA into the VM:
 
    ```json
    {
@@ -110,6 +111,7 @@ release.
        "memory": 16,
        "disk": 100,
        "dotfiles": "git@github.com:user/dotfiles.git",
+       "mkcert": true,
        "clone": [
          {
            "org": "robsonpeixoto",
@@ -122,14 +124,15 @@ release.
        "new-vm": {
          "cpus": 4,
          "memory": 4,
-         "clone": []
+         "clone": [],
+         "mkcert": false
        }
      }
    }
    ```
 
    Here `new-vm` gets 4 vCPUs and 4 GiB, keeps the default 100 GiB disk and
-   dotfiles, and clones nothing; every other VM gets the `default` block as
+   dotfiles, clones nothing and gets no CA; every other VM gets the `default` block as
    written. An override replaces the key outright rather than merging into it,
    so `"clone": []` means no repositories and `"dotfiles": ""` means no
    dotfiles. Unknown keys are rejected, at either level.
@@ -142,6 +145,10 @@ release.
    fails to clone (no access, wrong name) is logged and skipped as well —
    neither stops the others. Boot provisioning reruns the step on every start,
    so it also picks up repositories added to the setting later.
+
+   `"mkcert": true` needs [mkcert](https://github.com/FiloSottile/mkcert) on
+   the host with a CA already generated (`mkcert -install`); `create` fails
+   with a hint otherwise. See [mkcert root CA](#mkcert-root-ca).
 
 5. Get in:
 
@@ -362,6 +369,34 @@ name for VMs created before titles were qualified.
   irreversible step is last, and the token scope is checked first, so a `gh`
   failure aborts with the VM still there.
 
+## mkcert root CA
+
+With `"mkcert": true` in the settings (see step 4 of
+[usage](#usage)), `create` reads `mkcert -CAROOT` on the host and gives the VM
+the same certificate authority, so a certificate issued in the guest is
+trusted by the host browser and vice versa.
+
+- `rootCA.pem` **and** `rootCA-key.pem` are copied into the guest CAROOT,
+  which is `~/.local/share/mkcert` unless `CAROOT` or `XDG_DATA_HOME` says
+  otherwise. The key comes along on purpose: without it the guest can only
+  trust the CA, not issue certificates from it (`mkcert app.test`).
+- `rootCA.pem` also goes into the template's `caCerts.files`, which hands it
+  to cloud-init: it lands in `/usr/local/share/ca-certificates` and
+  `update-ca-certificates` trusts it system-wide, so `curl` and every library
+  using the system store accept guest-issued certificates with no extra flag.
+- The `caCerts.files` entry stored in `~/.lima/<name>/lima.yaml` is the **host**
+  path, and Lima re-reads it on every start (it regenerates `cidata.iso` from
+  `lima.yaml` each time). Deleting or moving the host CAROOT therefore breaks
+  `go run . start <name>` for that VM until the file is back or the entry is
+  removed with `limactl edit <name>`.
+- Nothing runs `mkcert -install` in the guest. The system store is covered by
+  `caCerts` above; trusting the CA in a guest browser's own NSS store is a
+  manual `mkcert -install` (`libnss3-tools` is already installed).
+- mkcert itself is not installed by this repo — it comes from mise or the
+  dotfiles. The CA files are copied either way.
+- The setting is read at create time like everything else, so turning it on
+  later means delete and create again.
+
 ## Guest OS
 
 The guest is pinned to **Ubuntu 26.04 LTS**, by
@@ -522,7 +557,9 @@ user), then readiness probes gate `limactl start`.
    `my-ip` helper (`/usr/local/bin/my-ip`, prints the guest IP from inside the
    VM), and the repository list `clone-user.sh` reads
    (`/usr/local/lib/dev-vm/clone-list`, rendered by `devvm create` from the
-   `clone` setting).
+   `clone` setting), and the mkcert root CA pair
+   (`/usr/local/lib/dev-vm/rootCA.pem` and `rootCA-key.pem`, both empty unless
+   the `mkcert` setting is on).
 2. **`firewall-system.sh`** — keeps the guest network open, first of the system
    scripts: installs `nftables` when missing, deletes the `inet/ip/ip6 filter`
    tables (never `nft flush ruleset` — Lima's `table ip nat` carries the
@@ -593,7 +630,11 @@ user), then readiness probes gate `limactl start`.
    entry from `lima/dev-vm.yaml` and recreate to fall back to slirp4netns.
 17. **`mise-user.sh`** — activates mise in `~/.zshrc` (unless the oh-my-zsh
    mise plugin already does), `mise trust --all`, `mise install`.
-18. **`clone-user.sh`** — clones the repositories from the `clone` setting into
+18. **`mkcert-user.sh`** — installs the staged root CA pair into the guest
+   CAROOT (`~/.local/share/mkcert` unless `CAROOT`/`XDG_DATA_HOME` says
+   otherwise), after mise so `mkcert -CAROOT` can answer for itself. No-op when
+   the staged files are empty; see [mkcert root CA](#mkcert-root-ca).
+19. **`clone-user.sh`** — clones the repositories from the `clone` setting into
    `<basedir>/<repo>`, last so the ssh key, `known_hosts` and git are all in
    place. `${HOME}` in `basedir` expands here, in the guest. An existing
    directory is skipped and a failing clone is logged and skipped, so neither
@@ -609,6 +650,7 @@ flowchart TD
         d5["my-ip<br>prints the guest IP"]
         d6["sysctl.d/99-dev-vm.conf<br>unprivileged ports from 0,<br>ping_group_range"]
         d7["clone-list<br>repositories to clone<br>(from the clone setting)"]
+        d8["rootCA.pem + rootCA-key.pem<br>mkcert root CA<br>(from the mkcert setting)"]
     end
 
     subgraph system["system scripts (root)"]
@@ -631,6 +673,7 @@ flowchart TD
         u3["dotfiles.sh<br>check out dotfiles over $HOME"]
         u4["docker-user.sh<br>set up rootless Docker daemon<br>(pasta networking)"]
         u5["mise-user.sh<br>trust config, install tools"]
+        u5b["mkcert-user.sh<br>install the root CA into<br>the guest CAROOT"]
         u6["clone-user.sh<br>clone the repositories from<br>the clone setting"]
     end
 
@@ -642,6 +685,6 @@ flowchart TD
     data --> system
     s0 --> s0b --> s1 --> s1b --> s1c --> s2 --> s3 --> s4 --> s4b --> s5
     system --> user
-    u1 --> u1b --> u2 --> u3 --> u4 --> u5 --> u6
+    u1 --> u1b --> u2 --> u3 --> u4 --> u5 --> u5b --> u6
     user --> probes
 ```
