@@ -14,11 +14,17 @@ installed() {
 }
 
 # ca-certificates + curl fetch the repo key; uidmap (newuidmap/newgidmap) and
-# dbus-user-session are rootless Docker's own prerequisites; passt provides
-# pasta, the network driver selected by the docker.service override file.
-# docker-ce-rootless-extras carries dockerd-rootless-setuptool.sh, rootlesskit
-# and slirp4netns — without it there is no rootless daemon to set up.
-packages="ca-certificates curl uidmap dbus-user-session passt
+# dbus-user-session are rootless Docker's own prerequisites.
+#
+# slirp4netns is what makes the rootless networking need no configuration at
+# all: dockerd-rootless.sh picks --net=slirp4netns --port-driver=builtin when
+# that binary is on PATH, which is the only driver pair that can publish a port
+# on the guest's own vzNAT IP. It is a separate package —
+# docker-ce-rootless-extras carries dockerd-rootless-setuptool.sh and
+# rootlesskit but not that binary, and without it the daemon falls back to
+# pasta + the implicit port driver, where `docker run -p <guest-ip>:8081:80`
+# fails with "cannot assign requested address".
+packages="ca-certificates curl uidmap dbus-user-session slirp4netns
     docker-ce docker-ce-cli containerd.io docker-ce-rootless-extras
     docker-buildx-plugin docker-compose-plugin"
 

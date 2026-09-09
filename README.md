@@ -272,6 +272,44 @@ into it. The rules behind that:
 Lima's own ssh tunnel on `127.0.0.1`. That is internal to Lima, not a
 `portForwards` entry.
 
+### Publishing ports
+
+Rootless Docker publishes ports through RootlessKit, and the pair of drivers it
+uses decides which publish forms work. This VM runs the `slirp4netns` network
+driver with the `builtin` port driver, the only combination where all of these
+work:
+
+```sh
+docker run -d -p 8080:80 nginx          # every interface
+docker run -d -p 80:80 nginx            # below 1024
+docker run -d -p "$(my-ip)":8080:80 nginx   # the guest's own vzNAT IP
+```
+
+The last one is the reason it matters. `pasta` is the faster network driver,
+but RootlessKit accepts only the `implicit`, `none` or `pesto` port drivers
+alongside it, and under `implicit` the ports are bound inside a namespace whose
+sole address is pasta's own `10.0.2.100`, so publishing on the guest IP fails:
+
+```
+failed to bind host port 192.168.64.12:8081/tcp: cannot assign requested address
+```
+
+`pesto` lifts that limit but needs `passt >= 2026_05_07`, newer than Ubuntu
+26.04 ships. `builtin` binds in the guest's own network namespace instead, at
+the cost of a userspace copy per connection.
+
+**Nothing configures this.** `dockerd-rootless.sh` picks exactly that pair when
+`slirp4netns` is on `PATH`, so the whole setup is one package in
+`docker-system.sh`'s list — there is no systemd drop-in and no
+`DOCKERD_ROOTLESS_ROOTLESSKIT_*` variable anywhere in this repo. The package is
+separate on purpose: `docker-ce-rootless-extras` ships `rootlesskit` but not
+that binary, and without it the daemon falls back to pasta and the failure
+above.
+
+Reaching a published port from the Mac always means the guest IP —
+`curl "http://$(go run . status myvm -ip):8080/"`. `localhost:8080` on the Mac
+never answers; there are no port forwards.
+
 ## Shell completion
 
 `dev-vm completion <bash|zsh|fish>` prints the completion script for that
@@ -615,9 +653,7 @@ user), then readiness probes gate `limactl start`.
 1. **Data files** — GitHub key + ssh config, the global `DOCKER_HOST` snippet
    (`/etc/profile.d/docker-host.sh`), the `DEV_VM`/`DEV_VM_NAME` markers
    (`/etc/profile.d/dev-vm.sh`), the rustup PATH entry
-   (`/etc/profile.d/rust.sh`), the rootless-Docker pasta override
-   (staged at `/usr/local/lib/dev-vm/docker-rootless-override.conf`;
-   `docker-user.sh` installs it into `~/.config/systemd/user/`), the
+   (`/etc/profile.d/rust.sh`), the
    no-auto-upgrade policy in
    `/etc/apt/apt.conf.d/99dev-vm-no-auto-upgrades`, the sysctls
    (`/etc/sysctl.d/99-dev-vm.conf`: unprivileged ports from 0 and
@@ -649,7 +685,7 @@ user), then readiness probes gate `limactl start`.
    `/etc/systemd/system/user@.service.d/`, starts `systemd-logind` and enables
    linger for the user so the daemon's systemd user instance survives logout.
 4. **`docker-system.sh`** — installs Docker Engine from Docker's apt repo
-   (with `docker-ce-rootless-extras` and `passt`) when any of it is missing,
+   (with `docker-ce-rootless-extras` and `slirp4netns`) when any of it is missing,
    then masks the system-wide `docker`/`containerd` units so only the rootless
    daemon exists.
 5. **`git-system.sh`** — installs git from the git-core PPA
@@ -697,14 +733,11 @@ user), then readiness probes gate `limactl start`.
    over `$HOME` (clobbered files move to `~/tmp/config-backup`). No-op without
    `DOTFILES_REPO`. The repo owns `~/.ssh/config`, so it is also responsible
    for including the drop-ins above.
-17. **`docker-user.sh`** — installs the pasta override into
-   `~/.config/systemd/user/docker.service.d/`, then
-   `dockerd-rootless-setuptool.sh install` and selects the
-   `rootless` context. The daemon comes up with pasta networking instead of
-   slirp4netns: the override file sets
-   `DOCKERD_ROOTLESS_ROOTLESSKIT_NET=pasta` (with its `implicit` port driver)
-   for faster container egress. Still experimental upstream — drop the override
-   entry from `lima/dev-vm.yaml` and recreate to fall back to slirp4netns.
+17. **`docker-user.sh`** — `dockerd-rootless-setuptool.sh install`, then
+   selects the `rootless` context. No networking configuration: the daemon
+   defaults to `slirp4netns` + the `builtin` port driver because
+   `docker-system.sh` installed the `slirp4netns` package — see
+   [publishing ports](#publishing-ports).
 18. **`mise-user.sh`** — activates mise in `~/.zshrc` (unless the oh-my-zsh
    mise plugin already does), `mise trust --all`, `mise install`.
 19. **`rust-user.sh`** — installs the Rust toolchain with rustup
@@ -753,7 +786,7 @@ flowchart TD
         u1b["ssh-config-user.sh<br>install the config.d GitHub drop-in"]
         u2["omz-user.sh<br>install oh-my-zsh"]
         u3["dotfiles.sh<br>check out dotfiles over $HOME"]
-        u4["docker-user.sh<br>set up rootless Docker daemon<br>(pasta networking)"]
+        u4["docker-user.sh<br>set up rootless Docker daemon"]
         u5["mise-user.sh<br>trust config, install tools"]
         u5r["rust-user.sh<br>install the rustup toolchain"]
         u5b["mkcert-user.sh<br>install the root CA into<br>the guest CAROOT"]

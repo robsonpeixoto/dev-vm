@@ -20,11 +20,14 @@ ssh:
   forwardAgent: false
 # Plain mode: mounts, port forwards, containerd and the guest agent are all off.
 # Provision scripts and probes still run. See https://lima-vm.io/docs/config/plain/
-plain: true
+plain: false
+mounts: []
+containerd:
+  system: false
+  user: false
 user:
   home: /home/{{.User}}
   shell: /usr/bin/zsh
-mounts: []
 param:
   # Dotfiles bare repo to check out over the guest $HOME. Empty disables it;
   # devvm create sets it from -dotfiles or ~/.config/dev-vm/settings.json.
@@ -76,18 +79,6 @@ provision:
     file:
       url: files/rust.sh
     path: /etc/profile.d/rust.sh
-    owner: "root:root"
-    permissions: "644"
-    overwrite: true
-  # Rootless Docker networking: pasta instead of the slirp4netns default, for
-  # faster container egress. Staged outside $HOME because data mode creates
-  # missing parent directories as root, which would leave ~/.config unwritable
-  # by the user; docker-user.sh installs it into the user's systemd tree before
-  # setting the daemon up.
-  - mode: data
-    file:
-      url: files/docker-rootless-override.conf
-    path: /usr/local/lib/dev-vm/docker-rootless-override.conf
     owner: "root:root"
     permissions: "644"
     overwrite: true
