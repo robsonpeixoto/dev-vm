@@ -69,7 +69,7 @@ func cmdList(argv []string) {
 
 	vms, _ := loadState()["vms"].(map[string]any)
 	if len(vms) == 0 {
-		fmt.Println("no VMs recorded; run: devvm create")
+		fmt.Println("no VMs recorded; run: dev-vm create")
 		return
 	}
 
