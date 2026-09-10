@@ -12,7 +12,7 @@ set -eux
 
 export DEBIAN_FRONTEND=noninteractive
 
-packages="tig postgresql-client-common libpq-dev libnss3-tools"
+packages="tig postgresql-client postgresql-client-common libpq-dev libnss3-tools"
 
 installed() {
     dpkg-query -W -f='${db:Status-Status}' "$1" 2>/dev/null | grep -qx installed
