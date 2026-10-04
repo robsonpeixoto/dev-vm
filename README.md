@@ -1,7 +1,7 @@
 # dev-vm
 
-Isolated Lima dev VM for macOS: own IP via vzNAT, no mounts, no port
-forwards, rootless Docker, zsh + oh-my-zsh, mise, neovim, Rust, GitHub SSH
+Isolated Lima dev VM for macOS: own IP via vzNAT, no mounts unless
+configured, no port forwards, rootless Docker, zsh + oh-my-zsh, mise, neovim, Rust, GitHub SSH
 access.
 
 ```sh
@@ -114,7 +114,8 @@ release.
    name that overrides it key by key. `clone` lists repositories to clone in
    the guest, per GitHub org, with the directory they go under, `mkcert`
    copies the host mkcert root CA into the VM, `ghostty` installs the
-   xterm-ghostty terminfo entry in it and `nested` gives the guest `/dev/kvm`:
+   xterm-ghostty terminfo entry in it, `nested` gives the guest `/dev/kvm`
+   and `mounts` shares host directories into it:
 
    ```json
    {
@@ -132,6 +133,9 @@ release.
            "basedir": "${HOME}/Code/robsonpeixoto",
            "repositories": ["dev-vm", "echo-server"]
          }
+       ],
+       "mounts": [
+         {"source": "~/Downloads", "destination": "~/Downloads", "mode": "ro"}
        ]
      },
      "vms": {
@@ -140,15 +144,16 @@ release.
          "memory": 4,
          "clone": [],
          "mkcert": false,
-         "ghostty": false
+         "ghostty": false,
+         "mounts": []
        }
      }
    }
    ```
 
    Here `new-vm` gets 4 vCPUs and 4 GiB, keeps the default 100 GiB disk and
-   dotfiles, clones nothing and gets neither the CA nor the terminfo entry; every other VM gets the `default` block as
-   written. An override replaces the key outright rather than merging into it,
+   dotfiles, clones nothing, mounts nothing and gets neither the CA nor the
+   terminfo entry; every other VM gets the `default` block as written. An override replaces the key outright rather than merging into it,
    so `"clone": []` means no repositories and `"dotfiles": ""` means no
    dotfiles. Unknown keys are rejected, at either level.
 
@@ -167,6 +172,9 @@ release.
 
    `"ghostty": true` needs Homebrew's ncurses on the host
    (`brew install ncurses`). See [ghostty terminfo](#ghostty-terminfo).
+
+   `mounts` entries take a host `source`, a guest `destination` and a
+   `mode`. See [host mounts](#host-mounts).
 
    `"nested": true` needs an Apple M3 or later. See
    [nested virtualization](#nested-virtualization).
@@ -509,6 +517,35 @@ the terminal is unknown).
   value, which is the whole point of compiling the entry there.
 - Like every other setting, this is read at create time, so turning it on
   later means delete and create again.
+
+## Host mounts
+
+Each entry of the `mounts` setting (see step 5 of [usage](#usage)) shares one
+host directory into the guest through Lima's own mounts (virtiofs under vz):
+
+| Key | Required | Meaning |
+|---|---|---|
+| `source` | yes | Host directory: an absolute path, `~` or `~/...` (the host home) |
+| `destination` | no | Guest path: absolute, `~` or `~/...` (the **guest** home, `/home/<user>.linux`). Defaults to `source` as expanded on the host, e.g. `/Users/<user>/Code` |
+| `mode` | no | `"ro"` (default) or `"rw"` |
+
+```json
+{"default": {"mounts": [
+  {"source": "~/Code", "destination": "~/host-code", "mode": "rw"},
+  {"source": "/Volumes/data"}
+]}}
+```
+
+- `create` rejects a relative path, `~user`, an unknown `mode`, and paths
+  holding quotes, backslashes, braces or control characters; Lima itself
+  rejects system destinations such as `/etc`, `/usr` or `/home`.
+- Like the size, mounts are fixed at create time: the list lands in the
+  instance's `lima.yaml`. Change them with `limactl edit <name>` or delete +
+  create.
+- A `"rw"` mount lets anything in the VM write to the host directory. That
+  includes every container you run with access to it, so the VM stops being an
+  isolation boundary for that path — keep mounts narrow and read-only unless
+  writing is the point.
 
 ## Nested virtualization
 

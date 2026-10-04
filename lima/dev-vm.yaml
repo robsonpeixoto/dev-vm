@@ -25,6 +25,7 @@ ssh:
 # Plain mode: mounts, port forwards, containerd and the guest agent are all off.
 # Provision scripts and probes still run. See https://lima-vm.io/docs/config/plain/
 plain: false
+# devvm create replaces this with the "mounts" entry of settings.json.
 mounts: []
 containerd:
   system: false

@@ -26,7 +26,8 @@ Lima runs a Linux guest from a YAML template. On macOS the VM type is `vz`
   The hostagent **regenerates `cidata.iso` from `lima.yaml` on every start**, so
   config changes made with `limactl edit` take effect on the next boot.
 - Networking: `vzNAT` gives the guest its own IP on a NAT interface (this repo
-  uses it and disables all port forwards and mounts). Default (no `networks:`)
+  uses it and disables all port forwards; mounts exist only when the `mounts`
+  setting asks for them — see [Host mounts](#host-mounts)). Default (no `networks:`)
   is user-mode networking plus host port forwarding.
 - Other lifecycle commands: `limactl shell <name>`, `limactl stop <name>`,
   `limactl delete -f <name>`, `limactl list`, `limactl info`.
@@ -244,6 +245,8 @@ matches on output).
               "dotfiles": "git@github.com:user/dotfiles.git",
               "mkcert": true,
               "ghostty": true, "nested": false,
+              "mounts": [{"source": "~/Code", "destination": "~/host-code",
+                          "mode": "rw"}],
               "clone": [{"org": "gnosispay", "basedir": "${HOME}/Code/gnosispay",
                          "repositories": ["gp-v2"]}]},
   "vms": {"new-vm": {"cpus": 4, "memory": 4, "clone": [],
@@ -446,6 +449,32 @@ virtualization extensions and creates `/dev/kvm`.
   absent, which is every VM created without nesting.
 - Nothing installs QEMU or Lima in the guest; that stays the operator's job,
   like every other upgrade in this repo.
+
+### Host mounts
+
+The `mounts` key of the resolved settings block lists host directories to
+share into the guest, each `{"source", "destination", "mode"}`.
+
+- `settingsMounts` (`create.go`) validates it and returns `[]mount` in Lima's
+  terms (`location`, `mountPoint`, `writable`). `source` and `destination`
+  must be absolute, `~` or `~/...` and match `mountPathRE` (`devvm.go`) — no
+  quotes, backslashes, braces or control characters, since the paths go into a
+  quoted yq string and then through Lima's Go templates. `mode` is `"ro"` or
+  `"rw"`, defaulting to `"ro"` like Lima's `writable: false`.
+- **`~` means a different home on each side.** Lima tilde-expands `location`
+  on the host but rejects a `mountPoint` starting with `~` (`validate.go`:
+  "there is no tilde-expansion for guest filenames"). So a `~` destination is
+  rewritten to `{{.Home}}...`, which Lima templates to the guest home, and an
+  absent destination is left out of the entry entirely, letting Lima mount at
+  the expanded host path. Never default it to `source` verbatim: a `~/x`
+  source would then become a rejected `~/x` mount point.
+- `startSet` writes `.mounts = [...]` **unconditionally**, empty when nothing
+  is configured, so the template's `mounts: []` is documentation like the
+  size fields. Mounts are fixed at create time with everything else.
+- Mounts need `plain: false` (plain mode turns mounts off), which the
+  template currently has.
+- No flag configures this; a per-VM `"mounts": []` turns the default list off
+  for that VM.
 
 ### VM size
 

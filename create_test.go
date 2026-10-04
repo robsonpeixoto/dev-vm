@@ -364,23 +364,131 @@ func TestTerminfoB64(t *testing.T) {
 
 func TestStartSet(t *testing.T) {
 	res := resources{cpus: 4, memory: 8, disk: 100}
-	got := startSet(res, "git@github.com:user/dotfiles.git", "", false)
+	got := startSet(res, "git@github.com:user/dotfiles.git", "", false, nil)
 	want := `.cpus = 4 | .memory = "8GiB" | .disk = "100GiB" | .param.DOTFILES_REPO = "git@github.com:user/dotfiles.git"` +
-		` | .nestedVirtualization = false`
+		` | .nestedVirtualization = false | .mounts = []`
 	if got != want {
 		t.Errorf("startSet() = %q, want %q", got, want)
 	}
 	// The CA path is the host one, quoted: the default CAROOT on macOS has a
 	// space in it.
-	got = startSet(res, "", "/Users/x/Library/Application Support/mkcert", false)
-	want += ` | .caCerts.files = ["/Users/x/Library/Application Support/mkcert/rootCA.pem"]`
+	got = startSet(res, "", "/Users/x/Library/Application Support/mkcert", false, nil)
+	want = strings.Replace(want, ` | .mounts = []`,
+		` | .caCerts.files = ["/Users/x/Library/Application Support/mkcert/rootCA.pem"] | .mounts = []`, 1)
 	want = strings.Replace(want, `"git@github.com:user/dotfiles.git"`, `""`, 1)
 	if got != want {
 		t.Errorf("startSet() with a CAROOT = %q, want %q", got, want)
 	}
-	got = startSet(res, "", "", true)
+	got = startSet(res, "", "", true, nil)
 	if !strings.Contains(got, ".nestedVirtualization = true") {
 		t.Errorf("startSet() with nesting = %q, want .nestedVirtualization = true", got)
+	}
+	got = startSet(res, "", "", false, []mount{
+		{location: "~/Code", mountPoint: "{{.Home}}/Code", writable: true},
+		{location: "/Users/x/Application Support"},
+	})
+	wantMounts := ` | .mounts = [{"location": "~/Code", "mountPoint": "{{.Home}}/Code", "writable": true}, ` +
+		`{"location": "/Users/x/Application Support", "writable": false}]`
+	if !strings.HasSuffix(got, wantMounts) {
+		t.Errorf("startSet() with mounts = %q, want it to end with %q", got, wantMounts)
+	}
+}
+
+func TestSettingsMounts(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		settings string
+		vm       string
+		want     []mount
+	}{
+		{
+			name: "no settings",
+			vm:   "myvm",
+		},
+		{
+			name: "all fields",
+			settings: `{"default": {"mounts": [
+				{"source": "/Users/x/Code", "destination": "/srv/code", "mode": "rw"}]}}`,
+			vm:   "myvm",
+			want: []mount{{location: "/Users/x/Code", mountPoint: "/srv/code", writable: true}},
+		},
+		{
+			name:     "destination and mode default to Lima's",
+			settings: `{"default": {"mounts": [{"source": "~/Code"}]}}`,
+			vm:       "myvm",
+			want:     []mount{{location: "~/Code"}},
+		},
+		{
+			name: "tilde destination is the guest home",
+			settings: `{"default": {"mounts": [
+				{"source": "~/Code", "destination": "~/Code", "mode": "ro"},
+				{"source": "~", "destination": "~"}]}}`,
+			vm: "myvm",
+			want: []mount{
+				{location: "~/Code", mountPoint: "{{.Home}}/Code"},
+				{location: "~", mountPoint: "{{.Home}}"},
+			},
+		},
+		{
+			name: "vm block replaces the default list",
+			settings: `{"default": {"mounts": [{"source": "/a"}]},
+				"vms": {"myvm": {"mounts": [{"source": "/b"}]}}}`,
+			vm:   "myvm",
+			want: []mount{{location: "/b"}},
+		},
+		{
+			name: "empty vm list mounts nothing",
+			settings: `{"default": {"mounts": [{"source": "/a"}]},
+				"vms": {"myvm": {"mounts": []}}}`,
+			vm: "myvm",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withSettings(t, tc.settings)
+			got := settingsMounts(loadSettings(tc.vm))
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("settingsMounts() = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsMountPath(t *testing.T) {
+	for _, tc := range []struct {
+		path string
+		want bool
+	}{
+		{path: "/Users/x/Code", want: true},
+		{path: "~", want: true},
+		{path: "~/Code", want: true},
+		{path: "~other/Code", want: false},
+		{path: "Code", want: false},
+		{path: "", want: false},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			if got := isMountPath(tc.path); got != tc.want {
+				t.Errorf("isMountPath(%q) = %v, want %v", tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestMountPathRE(t *testing.T) {
+	for _, tc := range []struct {
+		path string
+		want bool
+	}{
+		{path: "/Users/x/Library/Application Support", want: true},
+		{path: `/a"b`, want: false},
+		{path: `/a\b`, want: false},
+		{path: "/a/{{.Name}}", want: false},
+		{path: "/a\nb", want: false},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			if got := mountPathRE.MatchString(tc.path); got != tc.want {
+				t.Errorf("mountPathRE.MatchString(%q) = %v, want %v", tc.path, got, tc.want)
+			}
+		})
 	}
 }
 

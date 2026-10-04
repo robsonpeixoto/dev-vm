@@ -4,7 +4,7 @@
 // VM metadata lives in a JSON state file under ~/.config/dev-vm, alongside an
 // optional user-written settings.json holding a "default" block — the dotfiles
 // repo, the VM size, the repositories to clone, the mkcert CA, the ghostty
-// terminfo — and per-VM overrides of it under "vms". SSH key pairs are kept in ~/.config/dev-vm/keys.
+// terminfo, the host mounts — and per-VM overrides of it under "vms". SSH key pairs are kept in ~/.config/dev-vm/keys.
 package main
 
 import (
@@ -39,6 +39,10 @@ var (
 	// Clone target directories: absolute or $HOME-relative paths, no spaces
 	// and no shell metacharacters beyond the ${HOME} the guest expands.
 	basedirRE = regexp.MustCompile(`^[A-Za-z0-9${}/._~-]+$`)
+	// Mount paths go into a quoted yq string and then through Lima's Go
+	// templates, so quotes, backslashes, braces and control characters are out.
+	// Spaces stay: macOS paths are full of them.
+	mountPathRE = regexp.MustCompile(`^[^\x00-\x1f"\\{}]+$`)
 )
 
 func homeDir() string {
@@ -107,6 +111,16 @@ type vmConfig struct {
 	Mkcert   *bool         `json:"mkcert"`
 	Ghostty  *bool         `json:"ghostty"`
 	Nested   *bool         `json:"nested"`
+	Mounts   *[]mountSpec  `json:"mounts"`
+}
+
+// mountSpec is one "mounts" entry: a host directory shared into the guest.
+// An empty destination mounts at the source path, and an empty mode is "ro":
+// Lima's own defaults.
+type mountSpec struct {
+	Source      string `json:"source"`
+	Destination string `json:"destination"`
+	Mode        string `json:"mode"`
 }
 
 // cloneGroup is one "clone" entry: repositories of a single GitHub org, all
@@ -174,6 +188,9 @@ func mergeConfig(base, over vmConfig) vmConfig {
 	}
 	if over.Nested != nil {
 		base.Nested = over.Nested
+	}
+	if over.Mounts != nil {
+		base.Mounts = over.Mounts
 	}
 	return base
 }

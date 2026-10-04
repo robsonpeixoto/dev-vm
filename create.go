@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"encoding/base64"
 	"errors"
 	"flag"
@@ -30,7 +31,7 @@ Usage: devvm create [name] [-create-ssh-key=false] [-dotfiles REPO|-no-dotfiles]
   private key and ssh config into the guest, and provisioning fetches
   known_hosts.
 - Reads ~/.config/dev-vm/settings.json for the "dotfiles", "cpus", "memory",
-  "disk", "clone", "mkcert", "ghostty" and "nested" keys: the "default" block
+  "disk", "clone", "mkcert", "ghostty", "nested" and "mounts" keys: the "default" block
   applies to every VM, and "vms".<name> overrides it key by key for this one.
 - With dotfiles enabled, provisioning clones the bare repo to ~/.dotfiles in
   the guest and checks it out over $HOME. The repo comes from -dotfiles or
@@ -52,6 +53,10 @@ Usage: devvm create [name] [-create-ssh-key=false] [-dotfiles REPO|-no-dotfiles]
   nestedVirtualization, so the guest gets /dev/kvm and can run VMs of its own.
   Needs an Apple M3 or later; -nested=false overrides the setting. Like the
   size, it is fixed at create time.
+- Shares the host directories listed under "mounts" into the guest, each as
+  {"source": HOST, "destination": GUEST, "mode": "ro"|"rw"}. destination
+  defaults to source and mode to "ro"; a leading ~ means the host home in
+  source and the guest home in destination. Fixed at create time.
 - Records VM metadata (GitHub key id, key paths) in ~/.config/dev-vm/state.json.
 
 `
@@ -90,6 +95,18 @@ const (
 type cloneRepo struct {
 	basedir string
 	repo    string
+}
+
+// mountMode maps the "mode" of a mount setting to Lima's writable flag.
+var mountMode = map[string]bool{"ro": false, "rw": true}
+
+// mount is a validated "mounts" entry, ready for Lima's mounts list.
+// mountPoint is a guest path or Lima template, never ~-prefixed; empty leaves
+// it to Lima, which mounts at the expanded host location.
+type mount struct {
+	location   string
+	mountPoint string
+	writable   bool
 }
 
 // guestFiles is what the host contributes to the template tree at create time,
@@ -143,6 +160,7 @@ func cmdCreate(argv []string) {
 	clones := settingsClones(config)
 	caroot := resolveCAROOT(config)
 	terminfo := resolveGhosttyTerminfo(config)
+	mounts := settingsMounts(config)
 	if vmExists(name) {
 		die("VM %q already exists; run: devvm delete %s", name, name)
 	}
@@ -182,8 +200,11 @@ func cmdCreate(argv []string) {
 	if nested {
 		fmt.Println("nested virtualization on; the guest gets /dev/kvm")
 	}
+	for _, m := range mounts {
+		fmt.Printf("mounting %s at %s (%s)\n", m.location, cmp.Or(m.mountPoint, m.location), mountModeName(m.writable))
+	}
 	fmt.Printf("VM size %d vCPU, %dGiB RAM, %dGiB disk\n", res.cpus, res.memory, res.disk)
-	startVM(name, dotfiles, res, nested, guestFiles{
+	startVM(name, dotfiles, res, nested, mounts, guestFiles{
 		key:      key,
 		clones:   clones,
 		caroot:   caroot,
@@ -392,6 +413,48 @@ func cloneList(clones []cloneRepo) string {
 	return list
 }
 
+// settingsMounts validates the "mounts" setting; mode falls back to "ro". Lima
+// expands ~ in a host location but rejects it in a mount point, so a ~
+// destination becomes the guest home template here, and an absent one is left
+// for Lima to derive from the expanded source.
+func settingsMounts(config vmConfig) []mount {
+	if config.Mounts == nil {
+		return nil
+	}
+	var mounts []mount
+	for _, m := range *config.Mounts {
+		if !mountPathRE.MatchString(m.Source) || !isMountPath(m.Source) {
+			die("settings %s: mount source %q must be an absolute or ~ path", settingsFile, m.Source)
+		}
+		dest := m.Destination
+		if dest != "" && (!mountPathRE.MatchString(dest) || !isMountPath(dest)) {
+			die("settings %s: mount destination %q must be an absolute or ~ path", settingsFile, dest)
+		}
+		writable, ok := mountMode[cmp.Or(m.Mode, "ro")]
+		if !ok {
+			die("settings %s: mount mode %q must be \"ro\" or \"rw\"", settingsFile, m.Mode)
+		}
+		if rest, ok := strings.CutPrefix(dest, "~"); ok {
+			dest = "{{.Home}}" + rest
+		}
+		mounts = append(mounts, mount{location: m.Source, mountPoint: dest, writable: writable})
+	}
+	return mounts
+}
+
+// isMountPath accepts an absolute path, ~ alone, or ~/...; ~user is not a
+// path the guest side could expand.
+func isMountPath(p string) bool {
+	return filepath.IsAbs(p) || p == "~" || strings.HasPrefix(p, "~/")
+}
+
+func mountModeName(writable bool) string {
+	if writable {
+		return "rw"
+	}
+	return "ro"
+}
+
 // resolveResources: a flag given on the command line wins, then settings.json,
 // then the built-in defaults.
 func resolveResources(flags resources, set map[string]bool, config vmConfig) resources {
@@ -486,7 +549,7 @@ func registerKey(name, title, pub string) int64 {
 // startVM materializes the embedded template tree into a temp directory —
 // limactl resolves provision file.url paths relative to the template — drops
 // the private key at tmp/default where the template expects it, and boots.
-func startVM(name, dotfiles string, res resources, nested bool, files guestFiles) {
+func startVM(name, dotfiles string, res resources, nested bool, mounts []mount, files guestFiles) {
 	dir, err := os.MkdirTemp("", "dev-vm-")
 	if err != nil {
 		die("cannot create temp dir: %v", err)
@@ -547,7 +610,7 @@ func startVM(name, dotfiles string, res resources, nested bool, files guestFiles
 	}
 
 	limactlRun("start", "--tty=false", "--name", name,
-		"--set", startSet(res, dotfiles, files.caroot, nested),
+		"--set", startSet(res, dotfiles, files.caroot, nested, mounts),
 		filepath.Join(dir, "dev-vm.yaml"))
 }
 
@@ -571,7 +634,8 @@ func terminfoB64(src string) string {
 // startSet is the yq expression patching the template at creation time. The
 // caCerts entry points at the host CAROOT, not at the temp tree: the hostagent
 // re-reads it every time the instance starts, long after that tree is gone.
-func startSet(res resources, dotfiles, caroot string, nested bool) string {
+// Mounts are written unconditionally, replacing the template's empty list.
+func startSet(res resources, dotfiles, caroot string, nested bool, mounts []mount) string {
 	set := fmt.Sprintf(
 		`.cpus = %d | .memory = "%dGiB" | .disk = "%dGiB" | .param.DOTFILES_REPO = %q`+
 			` | .nestedVirtualization = %t`,
@@ -579,5 +643,14 @@ func startSet(res resources, dotfiles, caroot string, nested bool) string {
 	if caroot != "" {
 		set += fmt.Sprintf(` | .caCerts.files = [%q]`, filepath.Join(caroot, "rootCA.pem"))
 	}
+	entries := make([]string, len(mounts))
+	for i, m := range mounts {
+		point := ""
+		if m.mountPoint != "" {
+			point = fmt.Sprintf(`, "mountPoint": %q`, m.mountPoint)
+		}
+		entries[i] = fmt.Sprintf(`{"location": %q%s, "writable": %t}`, m.location, point, m.writable)
+	}
+	set += " | .mounts = [" + strings.Join(entries, ", ") + "]"
 	return set
 }
