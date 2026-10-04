@@ -20,5 +20,5 @@ if ! ppa_configured || ! git_installed; then
     # add-apt-repository refreshes the package lists itself, so no apt-get
     # update here.
     add-apt-repository -y ppa:git-core/ppa
-    apt-get install -y git
+    apt-get install -y git git-lfs
 fi
