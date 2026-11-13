@@ -57,7 +57,7 @@ _dev_vm() {
             ;;
         stop)
             _arguments \
-                '-force[kill the VM instead of shutting the guest down gracefully]' \
+                '-force[kill the VM instead of a clean guest shutdown]' \
                 '1:name:_dev_vm_names'
             ;;
         disk-resize)

@@ -14,14 +14,16 @@ const diskResizeUsage = `Grow the disk of a Lima dev VM.
 
 Usage: devvm disk-resize [name] <GiB>
 
-- Sets the disk of the VM <name> (default "default") to <GiB>, a positive
-  integer, with limactl edit --disk. Lima grows a disk, never shrinks it, so
-  a size below the current one is refused before anything changes.
-- A running VM is stopped for the edit and started again afterwards; a
-  stopped VM stays stopped and picks the new size up on its next start.
+- Sets the disk of the VM <name> (default "default") to <GiB> with
+  limactl edit --disk. <GiB> is a positive integer. Lima can grow a disk, but
+  it cannot shrink it. Thus, if the size is less than the current size, the
+  command refuses it before it changes anything.
+- If the VM is running, the command stops it for the edit and then starts it
+  again. If the VM is stopped, it stays stopped and gets the new size on its
+  next start.
 - Records the size as "disk" under "vms".<name> in
-  ~/.config/dev-vm/settings.json, creating the file when missing, so a later
-  delete + create keeps it.
+  ~/.config/dev-vm/settings.json. If the file does not exist, the command
+  creates it. As a result, a later delete + create keeps the size.
 
 `
 

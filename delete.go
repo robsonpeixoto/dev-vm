@@ -15,20 +15,22 @@ const deleteUsage = `Delete a Lima dev VM and its GitHub SSH access.
 
 Usage: devvm delete [name] [-force]
 
-- Checks the gh token carries the admin:public_key scope, before removing
-  anything, so an auth problem costs nothing.
-- Asks for confirmation next: the VM name has to be typed back. -force
-  skips the prompt, and is required when stdin is not a terminal.
-- Deletes the GitHub key recorded in ~/.config/dev-vm/state.json plus any key
-  holding the title recorded there (dev-vm/<host>/<name>, or the bare <name>
-  for VMs created before titles were qualified), via gh.
-- Removes the key pair at ~/.config/dev-vm/keys/<name>.
+- First, makes sure that the gh token has the admin:public_key scope. As a
+  result, an authentication error stops the command before it deletes anything.
+- Next, asks for confirmation. You must type the VM name. -force skips the
+  prompt. If stdin is not a terminal, -force is required.
+- Deletes, through gh, the GitHub key that ~/.config/dev-vm/state.json
+  records. It also deletes each key with the title that the file records. That
+  title is dev-vm/<host>/<name>, or only <name> for VMs from before the host
+  was part of the title.
+- Deletes the key pair at ~/.config/dev-vm/keys/<name>.
 - Deletes the Lima VM <name>.
-- Drops the VM entry from the state file.
+- Deletes the VM entry from the state file.
 
-The recoverable work comes first and the VM disk last, so a failure talking to
-GitHub leaves the VM in place. Each step is skipped with a message when there
-is nothing to remove, so a partial delete can be re-run.
+The steps that you can recover from come first, and the VM disk comes last. As
+a result, the VM stays in place after a failure in a GitHub step. If a step has
+nothing to delete, the command shows a message and skips the step. Thus you can
+run a partial delete again.
 
 `
 
@@ -40,7 +42,7 @@ func cmdDelete(argv []string) {
 	}
 	var force bool
 	fs.BoolVar(&force, "force", false,
-		"skip the confirmation prompt; required when stdin is not a terminal")
+		"skip the confirmation prompt. If stdin is not a terminal, this flag is required")
 	name := parseArgs(fs, argv)
 
 	checkName(name)

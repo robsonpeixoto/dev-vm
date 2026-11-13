@@ -29,7 +29,7 @@ complete -c dev-vm -n '__fish_seen_subcommand_from start stop delete status' -a 
 # Only the first argument after disk-resize is a name; the size is free text.
 complete -c dev-vm -n '__fish_seen_subcommand_from disk-resize; and test (count (commandline -opc)) -eq 2' -a '(__dev_vm_names)' -d 'dev VM'
 complete -c dev-vm -n '__fish_seen_subcommand_from status' -o ip -d 'print only the guest IP, empty when unavailable'
-complete -c dev-vm -n '__fish_seen_subcommand_from stop' -o force -d 'kill the VM instead of shutting the guest down gracefully'
+complete -c dev-vm -n '__fish_seen_subcommand_from stop' -o force -d 'kill the VM instead of a clean guest shutdown'
 complete -c dev-vm -n '__fish_seen_subcommand_from delete' -o force -d 'skip the confirmation prompt'
 
 complete -c dev-vm -n '__fish_seen_subcommand_from completion' -a 'bash zsh fish' -d shell

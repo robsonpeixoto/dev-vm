@@ -18,16 +18,17 @@ const listUsage = `List dev VMs with their IP and SSH hostname.
 
 Usage: devvm list
 
-- Shows every VM recorded in ~/.config/dev-vm/state.json with its Lima
-  status, its guest IP and the SSH hostname from Lima's generated ssh config.
-- CPUS, MEM and DISK come from Lima, so they show the instance's real size
-  rather than the flags it was created with.
-- IP is read from the guest itself, the only place it exists: Lima does not
-  report it. A VM that is not running, or that does not answer in time, shows
+- Shows each VM that ~/.config/dev-vm/state.json records, with its Lima
+  status, its guest IP and its SSH hostname. The hostname comes from the ssh
+  config that Lima generates.
+- CPUS, MEM and DISK come from Lima. Thus they show the real size of the
+  instance, not the flags that created it.
+- The command reads IP from the guest, the only source of the IP. Lima does
+  not report it. If a VM is not running or does not answer in time, IP shows
   "-".
-- Reach a service in the guest at that IP; there are no port forwards.
+- There are no port forwards. Connect to a service in the guest at that IP.
 - Connect with: ssh -F ~/.lima/<name>/ssh.config <hostname>
-- VMs in the state file without a Lima instance show status Missing.
+- If a VM is in the state file but has no Lima instance, its status is Missing.
 
 `
 

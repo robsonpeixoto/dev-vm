@@ -12,14 +12,16 @@ const statusUsage = `Show one dev VM in detail.
 
 Usage: devvm status [name] [-ip]
 
-- Same data as devvm list for a single VM (name defaults to "default"), plus
-  what the state file records: dotfiles repo, key paths and creation time.
-- IP comes from the guest, so a VM that is not running shows "-". Reach guest
-  services at that IP; there are no port forwards.
+- Shows the same data as devvm list for one VM. The default name is
+  "default". It also shows the dotfiles repo, the key paths and the creation
+  time from the state file.
+- IP comes from the guest. If the VM is not running, IP shows "-". There are no
+  port forwards. Connect to guest services at that IP.
 - -ip prints only the guest IP, with no label, for use in scripts:
-  curl "http://$(devvm status -ip):8000". A VM that is not running, or that
-  does not answer within the timeout, prints an empty line and exits 0.
-- A name with no Lima instance shows status Missing instead of failing.
+  curl "http://$(devvm status -ip):8000". If the VM is not running or does not
+  answer in the timeout, the command prints an empty line and exits 0.
+- If a name has no Lima instance, the status is Missing and the command does
+  not fail.
 
 `
 

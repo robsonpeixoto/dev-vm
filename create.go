@@ -21,42 +21,48 @@ const createUsage = `Create an isolated Lima dev VM with SSH access to GitHub.
 Usage: devvm create [name] [-create-ssh-key=false] [-dotfiles REPO|-no-dotfiles]
                     [-cpus N] [-memory GiB] [-disk GiB] [-nested]
 
-- Generates a fresh ed25519 key pair at ~/.config/dev-vm/keys/<name> (no
-  passphrase) on every create; -create-ssh-key=false reuses the existing pair.
-- Registers the public key on GitHub with title dev-vm/<host>/<name> via gh,
-  replacing any key recorded in the state file or sharing the same title. The
-  host qualifier keeps two machines using the same VM name from deleting each
-  other's key.
-- Starts the VM from the embedded lima/dev-vm.yaml; the template uploads the
-  private key and ssh config into the guest, and provisioning fetches
-  known_hosts.
-- Reads ~/.config/dev-vm/settings.json for the "dotfiles", "cpus", "memory",
-  "disk", "clone", "mkcert", "ghostty", "nested" and "mounts" keys: the "default" block
-  applies to every VM, and "vms".<name> overrides it key by key for this one.
-- With dotfiles enabled, provisioning clones the bare repo to ~/.dotfiles in
-  the guest and checks it out over $HOME. The repo comes from -dotfiles or
-  from the "dotfiles" setting, which turns dotfiles on by default.
-- Sizes the VM at 2 vCPUs, 2 GiB RAM and a 50 GiB disk by default. -cpus,
-  -memory and -disk override both that and the settings; -memory and -disk are
-  plain integers in GiB. Size is fixed at create time — resizing means delete
-  and create again.
-- Clones the repositories listed under "clone" as the last user provisioning
-  step; a repository already present in the guest is skipped.
-- With "mkcert": true in the settings, copies the host mkcert root CA
-  (rootCA.pem and rootCA-key.pem from mkcert -CAROOT) into the guest CAROOT
-  and trusts rootCA.pem in the guest system store through the template's
-  caCerts.files.
-- With "ghostty": true in the settings, captures the xterm-ghostty terminfo
-  entry with Homebrew's infocmp (brew install ncurses; the macOS built-in is
-  too old for extended capabilities) and compiles it in the guest.
-- -nested (or "nested": true in the settings) turns on Lima's
-  nestedVirtualization, so the guest gets /dev/kvm and can run VMs of its own.
-  Needs an Apple M3 or later; -nested=false overrides the setting. Like the
-  size, it is fixed at create time.
-- Shares the host directories listed under "mounts" into the guest, each as
-  {"source": HOST, "destination": GUEST, "mode": "ro"|"rw"}. destination
-  defaults to source and mode to "ro"; a leading ~ means the host home in
-  source and the guest home in destination. Fixed at create time.
+- Generates a new ed25519 key pair without a passphrase at
+  ~/.config/dev-vm/keys/<name> on every create. -create-ssh-key=false reuses
+  the existing pair.
+- Registers the public key on GitHub through gh, with the title
+  dev-vm/<host>/<name>. This key replaces each key that the state file records
+  or that has the same title. With the host in the title, two hosts that use
+  the same VM name do not delete the key of the other host.
+- Starts the VM from the embedded template lima/dev-vm.yaml. The template
+  uploads the private key and the ssh config into the guest. Provisioning
+  fetches known_hosts.
+- Reads the "dotfiles", "cpus", "memory", "disk", "clone", "mkcert",
+  "ghostty", "nested" and "mounts" keys from ~/.config/dev-vm/settings.json.
+  The "default" block applies to every VM. The "vms".<name> block overrides it
+  key by key for this VM.
+- If dotfiles are enabled, provisioning clones the bare repo to ~/.dotfiles in
+  the guest. Then it checks out the repo over $HOME. The repo comes from
+  -dotfiles or from the "dotfiles" key in the settings. That key enables
+  dotfiles by default.
+- By default, the VM gets 2 vCPUs, 2 GiB RAM and a 50 GiB disk. -cpus,
+  -memory and -disk override these defaults and the settings. -memory and
+  -disk are integers in GiB. The size is fixed at create time. To grow the
+  disk, use devvm disk-resize. To change the CPUs or the memory, delete the VM
+  and create it again.
+- Clones the repositories in the "clone" key as the last user provisioning
+  step. If a repository is already in the guest, the step skips it.
+- If the settings have "mkcert": true, copies the host mkcert root CA into the
+  guest CAROOT. The root CA is rootCA.pem and rootCA-key.pem from
+  mkcert -CAROOT. Through caCerts.files in the template, the guest system store
+  trusts rootCA.pem.
+- If the settings have "ghostty": true, captures the xterm-ghostty terminfo
+  entry with the infocmp from Homebrew (brew install ncurses). Then it compiles
+  the entry in the guest. The infocmp in macOS is too old for extended
+  capabilities.
+- -nested (or "nested": true in the settings) enables nestedVirtualization in
+  Lima. Then the guest gets /dev/kvm and can run its own VMs. This needs an
+  Apple M3 or later. -nested=false overrides the setting. Like the size, this
+  value is fixed at create time.
+- Shares the host directories in the "mounts" key into the guest. Each entry
+  is {"source": HOST, "destination": GUEST, "mode": "ro"|"rw"}. If destination
+  is not set, it is the same as source. If mode is not set, it is "ro". A
+  leading ~ in source means the host home. In destination, it means the guest
+  home. The mounts are fixed at create time.
 - Records VM metadata (GitHub key id, key paths) in ~/.config/dev-vm/state.json.
 
 `
@@ -129,10 +135,10 @@ func cmdCreate(argv []string) {
 	var dotfilesRepo string
 	var noDotfiles bool
 	fs.BoolVar(&createSSHKey, "create-ssh-key", true,
-		"create and register a new key; -create-ssh-key=false reuses the existing key")
+		"create and register a new key. -create-ssh-key=false reuses the existing key")
 	fs.StringVar(&dotfilesRepo, "dotfiles", "",
-		"clone REPO as a bare repo and check it out over the guest $HOME; "+
-			"unset, use the \"dotfiles\" entry in settings.json")
+		"clone REPO as a bare repo and check it out over the guest $HOME. "+
+			"If not set, use the \"dotfiles\" key in settings.json")
 	fs.BoolVar(&noDotfiles, "no-dotfiles", false,
 		"skip dotfiles even when settings.json configures them")
 	// Zero defaults: the real ones come from settings.json, which can only be
@@ -143,8 +149,8 @@ func cmdCreate(argv []string) {
 	fs.IntVar(&res.disk, "disk", 0, "disk size in GiB (default 50, or settings.json)")
 	var nested bool
 	fs.BoolVar(&nested, "nested", false,
-		"run the VM with nested virtualization (Apple M3 or later); "+
-			"unset, use the \"nested\" entry in settings.json")
+		"run the VM with nested virtualization (Apple M3 or later). "+
+			"If not set, use the \"nested\" key in settings.json")
 	name := parseArgs(fs, argv)
 
 	checkName(name)

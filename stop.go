@@ -10,12 +10,12 @@ const stopUsage = `Stop a running Lima dev VM.
 
 Usage: devvm stop [name] [-force]
 
-- Shuts the VM <name> down gracefully, leaving the disk and the GitHub key
-  in place; devvm start brings it back.
-- -force kills the VM instead of asking the guest to shut down. Faster, but
-  unwritten data in the guest is lost.
-- Stopping an already stopped VM is a no-op.
-- Fails when there is no such VM; create it with devvm create.
+- Stops the VM <name> with a clean guest shutdown. The disk and the GitHub key
+  stay in place. devvm start starts the VM again.
+- -force kills the VM and does not ask the guest for a shutdown. This is
+  faster, but the guest loses data that is not yet on its disk.
+- If the VM is already stopped, the command does nothing.
+- If the VM does not exist, the command fails. Use devvm create to create it.
 
 `
 
@@ -27,7 +27,7 @@ func cmdStop(argv []string) {
 	}
 	var force bool
 	fs.BoolVar(&force, "force", false,
-		"kill the VM instead of shutting the guest down gracefully")
+		"kill the VM instead of a clean guest shutdown")
 	name := parseArgs(fs, argv)
 
 	checkName(name)
