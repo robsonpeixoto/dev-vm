@@ -8,7 +8,7 @@ _dev_vm() {
     COMPREPLY=()
 
     if [ "$COMP_CWORD" -eq 1 ]; then
-        COMPREPLY=($(compgen -W "create start stop delete list status completion version help" -- "$cur"))
+        COMPREPLY=($(compgen -W "create start stop delete disk-resize list status completion version help" -- "$cur"))
         return
     fi
 
@@ -39,6 +39,14 @@ _dev_vm() {
         if [ "${cur:0:1}" = "-" ]; then
             COMPREPLY=($(compgen -W "-force -help" -- "$cur"))
         else
+            COMPREPLY=($(compgen -W "$("${COMP_WORDS[0]}" __names 2>/dev/null)" -- "$cur"))
+        fi
+        ;;
+    disk-resize)
+        # Only the first positional is a name; the size is free text.
+        if [ "${cur:0:1}" = "-" ]; then
+            COMPREPLY=($(compgen -W "-help" -- "$cur"))
+        elif [ "$COMP_CWORD" -eq 2 ]; then
             COMPREPLY=($(compgen -W "$("${COMP_WORDS[0]}" __names 2>/dev/null)" -- "$cur"))
         fi
         ;;

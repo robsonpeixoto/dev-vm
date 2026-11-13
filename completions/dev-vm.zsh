@@ -15,6 +15,7 @@ _dev_vm() {
         'start:start a stopped dev VM'
         'stop:stop a running dev VM'
         'delete:delete a dev VM and its GitHub key'
+        'disk-resize:grow the disk of a dev VM'
         'list:list dev VMs with their IP and SSH hostname'
         'status:show one dev VM in detail'
         'completion:print the shell completion script'
@@ -58,6 +59,11 @@ _dev_vm() {
             _arguments \
                 '-force[kill the VM instead of shutting the guest down gracefully]' \
                 '1:name:_dev_vm_names'
+            ;;
+        disk-resize)
+            _arguments \
+                '1:name:_dev_vm_names' \
+                '2:gib:'
             ;;
         completion)
             _arguments '1:shell:(bash zsh fish)'

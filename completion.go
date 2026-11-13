@@ -28,8 +28,8 @@ Install it permanently:
   zsh:  devvm completion zsh > "${fpath[1]}/_dev-vm"
   fish: devvm completion fish > ~/.config/fish/completions/dev-vm.fish
 
-The script completes VM names for start, stop, delete and status by calling
-"devvm __names".
+The script completes VM names for start, stop, delete, disk-resize and status
+by calling "devvm __names".
 
 `
 
