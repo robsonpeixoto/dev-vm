@@ -1,134 +1,160 @@
 # LIMA VM
 
-Reference for Lima v2.2.0 (https://github.com/lima-vm/lima/tree/v2.2.0), the
-version this repo targets (`minimumLimaVersion: "2.0.0"` in `lima/dev-vm.yaml`).
+This file is a reference for Lima v2.2.0
+(https://github.com/lima-vm/lima/tree/v2.2.0). This repo targets that version
+(`minimumLimaVersion: "2.0.0"` in `lima/dev-vm.yaml`).
 
 ## Summary: how Lima works
 
-Lima runs a Linux guest from a YAML template. On macOS the VM type is `vz`
+Lima runs a Linux guest from a YAML template. On macOS, the VM type is `vz`
 (Apple Virtualization.framework) or `qemu`.
 
-- `limactl start [--name <name>] <template.yaml>` creates an instance directory
-  at `~/.lima/<name>/` and boots it. `--set '<yq expression>'` patches the
-  template at creation time (used by `devvm create` to set the
+- `limactl start [--name <name>] <template.yaml>` creates a VM directory at
+  `~/.lima/<name>/` and boots the VM. `--set '<yq expression>'` patches the
+  template at creation time. `devvm create` uses it to set the
   `DOTFILES_REPO` param and the `.cpus`/`.memory`/`.disk` fields, all in one
-  `|`-joined expression).
-- The template is **flattened at creation**: `base:` templates are merged, and
-  external `provision`/`probes` `file:` references are inlined into the stored
-  `~/.lima/<name>/lima.yaml`. That file — not the repo template — is the source
-  of truth for later boots. Editing `lima/dev-vm.yaml` or `lima/scripts/*.sh`
-  has **no effect on an existing VM**; recreate it
-  (`go run . delete && go run . create`) or `limactl edit <name>`.
-- Instance directory holds `lima.yaml`, `basedisk`/`diffdisk`, `cidata.iso`,
+  `|`-joined expression.
+- At creation, Lima **flattens** the template. It merges the `base:`
+  templates. It also puts the contents of the external `provision`/`probes`
+  `file:` references into the stored `~/.lima/<name>/lima.yaml`. Later boots
+  use that file as the source of truth, not the repo template. Thus an edit to
+  `lima/dev-vm.yaml` or `lima/scripts/*.sh` has **no effect on an existing
+  VM**. To apply the edit, recreate the VM
+  (`go run . delete && go run . create`) or run `limactl edit <name>`.
+- The VM directory holds `lima.yaml`, `basedisk`/`diffdisk`, `cidata.iso`,
   `ha.stdout.log`, `ha.stderr.log`, `serial*.log`.
-- Guest configuration is delivered by **cloud-init** through `cidata.iso`,
-  mounted read-only in the guest at `/mnt/lima-cidata` (mode 0700, root-only).
-  The hostagent **regenerates `cidata.iso` from `lima.yaml` on every start**, so
-  config changes made with `limactl edit` take effect on the next boot.
-- Networking: `vzNAT` gives the guest its own IP on a NAT interface (this repo
-  uses it and disables all port forwards; mounts exist only when the `mounts`
-  setting asks for them — see [Host mounts](#host-mounts)). Default (no `networks:`)
-  is user-mode networking plus host port forwarding.
+- **cloud-init** delivers the guest configuration through `cidata.iso`. The
+  guest mounts it read-only at `/mnt/lima-cidata` (mode 0700, root-only). The
+  hostagent **regenerates `cidata.iso` from `lima.yaml` on every start**. As a
+  result, a change that you make with `limactl edit` takes effect on the next
+  boot.
+- Networking: `vzNAT` gives the guest its own IP on a NAT interface. This repo
+  uses `vzNAT` and disables all port forwards. Mounts exist only when the
+  `mounts` setting asks for them (see [Host mounts](#host-mounts)). Without
+  `networks:`, the default is user-mode networking plus host port forwarding.
 - Other lifecycle commands: `limactl shell <name>`, `limactl stop <name>`,
   `limactl delete -f <name>`, `limactl list`, `limactl info`.
 
 ### Network invariants
 
-Non-negotiable, and the reason `firewall-system.sh` exists:
+These rules are not negotiable. They are the reason that `firewall-system.sh`
+exists:
 
-- Every VM has its own `vzNAT` IP, and that IP is the only way in. **Never add
-  a `portForwards` entry** — the two `ignore: true` entries in
-  `lima/dev-vm.yaml` cover `127.0.0.1` and `0.0.0.0` and stay that way.
-- **Never install or enable a firewall in the guest.** `firewall-system.sh` runs
-  first among the system scripts and enforces the opposite: it deletes the
-  `inet filter`, `ip filter` and `ip6 filter` tables (delete, not flush, so a
-  base chain's `policy drop` cannot survive), then `ufw --force disable`,
-  `systemctl disable --now ufw.service` — the unit ships enabled *and* active
-  even while `ufw status` says inactive, so masking alone would leave it
-  running — and `systemctl mask ufw.service`.
-- **Never `nft flush ruleset`.** Lima owns `table ip nat`, whose `LIMADNS`
-  chains hook prerouting and output to redirect guest DNS; wiping the ruleset
-  breaks name resolution until the next boot. Rootless Docker's rules live in
-  its own user network namespace and are out of reach either way.
-- Every port must be usable, including below 1024. That needs
-  `net.ipv4.ip_unprivileged_port_start=0`
-  (`lima/files/sysctl/99-dev-vm.conf`, applied by `sysctl --system` in the same
-  script): rootless Docker publishes ports as the guest user, so the 1024
-  default makes `docker run -p 80:80` fail with `bind: permission denied`.
-  Ubuntu 26.04 happens to ship 0 already; the file pins it instead of trusting
-  that default.
-- Lima does not report the guest IP. `limactl list --format json` carries only
-  `network[].macAddress`, `sshAddress` is `127.0.0.1`, and macOS's
-  `/var/db/dhcpd_leases` keeps stale rows (verified: a lease row for
-  `lima-default` holding an IP from an earlier incarnation of the instance, and
-  no row for the current MAC). So `list`/`status`/`create` read it from the
-  guest with `limactl shell <name> ip -4 -json addr show <iface>`, taking the
-  interface name from Lima's own `network[].interface`. One attempt per Running
-  VM, in parallel, 5 s deadline, through `limactlTry` — the only limactl helper
-  that returns an error instead of calling `die`. Anything else renders `-`.
-- `limactl shell` and `~/.lima/<name>/ssh.config` still ride Lima's internal ssh
-  tunnel on `127.0.0.1`. That is Lima's own mechanism, not a port forward.
+- Each VM has its own `vzNAT` IP, and that IP is the only way in. **Never add
+  a `portForwards` entry.** The two `ignore: true` entries in
+  `lima/dev-vm.yaml` cover `127.0.0.1` and `0.0.0.0`. These two entries must
+  stay as they are.
+- **Never install or enable a firewall in the guest.** `firewall-system.sh`
+  runs first of the system scripts and enforces the opposite:
+  - It deletes the `inet filter`, `ip filter` and `ip6 filter` tables. It
+    deletes them and does not flush them. Thus the `policy drop` of a base
+    chain cannot survive.
+  - Then it runs `ufw --force disable`, `systemctl disable --now ufw.service`
+    and `systemctl mask ufw.service`. The unit ships enabled *and* active,
+    even while `ufw status` says inactive. Thus a mask alone leaves the unit
+    in operation.
+- **Never run `nft flush ruleset`.** Lima owns `table ip nat`. Its `LIMADNS`
+  chains hook prerouting and output to redirect guest DNS. If you wipe the
+  ruleset, name resolution breaks until the next boot. Rootless Docker keeps
+  its rules in its own user network namespace. Those rules are out of reach
+  either way.
+- Every port must be usable, also the ports lower than 1024. For this, the
+  guest needs `net.ipv4.ip_unprivileged_port_start=0`. The file
+  `lima/files/sysctl/99-dev-vm.conf` holds the value, and `sysctl --system`
+  in the same script applies it. Rootless Docker publishes ports as the guest
+  user. Thus, with the 1024 default, `docker run -p 80:80` fails with
+  `bind: permission denied`.
+
+  By chance, Ubuntu 26.04 already ships 0. The file pins the value and does
+  not trust that default.
+- Lima does not report the guest IP:
+  - `limactl list --format json` carries only `network[].macAddress`.
+  - `sshAddress` is `127.0.0.1`.
+  - macOS keeps stale rows in `/var/db/dhcpd_leases`. A test showed a lease
+    row for `lima-default` with an IP from an earlier VM of that name. The
+    same test showed no row for the current MAC.
+
+  Thus `list`/`status`/`create` read the IP from the guest with
+  `limactl shell <name> ip -4 -json addr show <iface>`. They take the
+  interface name from `network[].interface`, which Lima itself reports. They
+  make one attempt per Running VM, in parallel, with a 5 s deadline, through
+  `limactlTry`. `limactlTry` is the only limactl helper that returns an error
+  and does not call `die`. In all other cases, the output shows `-`.
+- `limactl shell` and `~/.lima/<name>/ssh.config` still use the internal ssh
+  tunnel of Lima on `127.0.0.1`. That tunnel is a Lima mechanism, not a port
+  forward.
 
 ## Provisioning
 
-`provision:` is a list of entries, each with a `mode`. Default mode when
-omitted is `system`.
+`provision:` is a list of entries. Each entry has a `mode`. If an entry omits
+`mode`, the mode is `system`.
 
 ### Cardinal rule: scripts run on EVERY boot
 
-Provisioning is wired into cloud-init's `scripts_per_boot`
-(`/var/lib/cloud/scripts/per-boot/00-lima.boot.sh`), not `runcmd`. Every
-`system`, `user`, `boot`, `dependency` script runs again on each restart, and
-every `data`/`yq` entry is reapplied. **Scripts must be idempotent.** Guard
-appends (`grep -qxF ... || echo >>`), use `install`/`mkdir -p`, tolerate
-already-done state (`|| true`), rewrite files rather than appending.
+Lima connects provisioning to the `scripts_per_boot` of cloud-init
+(`/var/lib/cloud/scripts/per-boot/00-lima.boot.sh`), not to `runcmd`. Every
+`system`, `user`, `boot` and `dependency` script runs again on each restart.
+Lima also applies every `data`/`yq` entry again.
+
+**Scripts must be idempotent:**
+
+- Guard each append (`grep -qxF ... || echo >>`).
+- Use `install`/`mkdir -p`.
+- Tolerate a state that is already done (`|| true`).
+- If possible, rewrite a file. Do not append to it.
 
 ### Execution order (per boot)
 
-1. cloud-init `init` stage — `bootcmd:`: `mode: boot` scripts run here, very
-   early, directly by `/bin/sh` (no shebang needed, no `$PATH` niceties, no
-   network guarantees, run as root).
-2. cloud-init `config` stage — `00-lima.boot.sh` is written, not run.
-3. cloud-init `final` stage — `00-lima.boot.sh` runs `/mnt/lima-cidata/boot.sh`,
-   which executes, in order:
-   - `boot.essential.Linux/*` then `boot.Linux/00-…` … `25-…`
-   - `boot.Linux/30-install-packages.sh` — runs `mode: dependency` scripts
-     first, then Lima's own dependency resolution
-   - `boot.Linux/35-…` and later (containerd, guestagent, etc.)
-   - `mode: data` files are copied
-   - `mode: yq` files are edited
-   - `mode: system` scripts run (root)
-   - `mode: user` scripts run (guest login user)
-   - `/run/lima-boot-done` is written; the host stops waiting
+1. cloud-init `init` stage, `bootcmd:`. The `mode: boot` scripts run here,
+   very early. `/bin/sh` runs them directly, as root. They need no shebang.
+   They get no `$PATH` conveniences and no network guarantees.
+2. cloud-init `config` stage. cloud-init writes `00-lima.boot.sh`, but does
+   not run it.
+3. cloud-init `final` stage. `00-lima.boot.sh` runs
+   `/mnt/lima-cidata/boot.sh`, which runs these steps in this order:
+   - `boot.essential.Linux/*`, then `boot.Linux/00-…` … `25-…`.
+   - `boot.Linux/30-install-packages.sh`. It runs the `mode: dependency`
+     scripts first, then the dependency resolution of Lima.
+   - `boot.Linux/35-…` and later (containerd, guestagent, and other
+     scripts).
+   - It copies the `mode: data` files.
+   - It edits the `mode: yq` files.
+   - It runs the `mode: system` scripts (as root).
+   - It runs the `mode: user` scripts (as the guest login user).
+   - It writes `/run/lima-boot-done`. Then the host stops its wait.
 
-`boot.sh` collects a non-zero `CODE` if any script fails but **keeps going** —
-a failing provision script does not abort the boot, it just makes
+If a script fails, `boot.sh` collects a non-zero `CODE`, but it **continues**.
+A failure of a provision script does not stop the boot. It only makes
 `limactl start` report a provisioning failure.
 
 ### Plain mode skips every `boot.Linux/*` script
 
-`plain: true` (this repo uses it) makes `boot.sh` run
-`boot.essential.Linux/*` and then log *"Plain mode. Skipping to run
-non-essential boot scripts"* — the whole `boot.Linux/*` set never executes,
-while `data`/`yq`/`system`/`user` provisioning and the probes still do. So
-anything the guest gets from those scripts is this repo's job:
+This repo uses `plain: true`. With it, `boot.sh` runs `boot.essential.Linux/*`
+and then logs *"Plain mode. Skipping to run non-essential boot scripts"*. The
+whole `boot.Linux/*` set never runs. The `data`/`yq`/`system`/`user`
+provisioning and the probes still run. Thus this repo must supply everything
+that the guest usually gets from those scripts:
 
-- `boot.Linux/20-rootless-base.sh` — `/etc/subuid` + `/etc/subgid` ranges,
-  `Delegate=yes` for `user@.service`, `systemd-logind` started,
+- `boot.Linux/20-rootless-base.sh` supplies `/etc/subuid` + `/etc/subgid`
+  ranges, `Delegate=yes` for `user@.service`, a started `systemd-logind`,
   `loginctl enable-linger`, and the `ip_unprivileged_port_start` /
-  `ping_group_range` sysctls. Rootless Docker needs all of it:
-  `dockerd-rootless-setuptool.sh` fails with `could not find <user> in
-  /etc/subuid` without the subid ranges, and without linger the daemon's
-  systemd user instance (and `/run/user/<uid>`, which boot.sh waits for before
-  any `user` script) goes away with the last session. Replaced by
-  `scripts/rootless-base-system.sh` plus `files/sysctl/99-dev-vm.conf`.
-- `boot.Linux/09-host-dns-setup.sh` — the `LIMADNS` chains. Not needed here:
-  `vzNAT` hands the guest DNS over DHCP.
-- `boot.Linux/30-install-packages.sh` — so `mode: dependency` entries never
-  run either. This repo has none; everything installs from `system` scripts.
-- `boot.Linux/07-etc-environment.sh` — the template's `env:` map is never
-  written to `/etc/environment`. Ship env vars as `/etc/profile.d` files
-  (`docker-host.sh`, `dev-vm.sh`) instead.
+  `ping_group_range` sysctls. Rootless Docker needs all of them:
+  - Without the subid ranges, `dockerd-rootless-setuptool.sh` fails with
+    `could not find <user> in /etc/subuid`.
+  - Without linger, the systemd user instance that runs the daemon goes away
+    with the last session. `/run/user/<uid>` goes away with it, and boot.sh
+    waits for that directory before any `user` script.
+
+  `scripts/rootless-base-system.sh` plus `files/sysctl/99-dev-vm.conf` replace
+  this script.
+- `boot.Linux/09-host-dns-setup.sh` makes the `LIMADNS` chains. This repo does
+  not need them, because `vzNAT` gives DNS to the guest over DHCP.
+- `boot.Linux/30-install-packages.sh` does not run, so the `mode: dependency`
+  entries never run either. This repo has no such entries. Everything installs
+  from `system` scripts.
+- `boot.Linux/07-etc-environment.sh` does not run, so nothing writes the
+  `env:` map of the template to `/etc/environment`. Ship env vars as
+  `/etc/profile.d` files (`docker-host.sh`, `dev-vm.sh`) in its place.
 
 ### Modes
 
@@ -144,35 +170,41 @@ anything the guest gets from those scripts is this repo's job:
 
 Notes per mode:
 
-- **`boot`** — runs before mounts, before packages, before the network is
-  necessarily up. Only for things that must precede everything else.
-  This repo uses no `boot` entry: it runs as root before the guest login user
-  exists, so anything writing into `{{.Home}}` (`ssh-known-hosts.sh`, for one)
-  would land in `/root` instead. Use `user` mode for that.
-- **`dependency`** — for adding package repos/packages before Lima installs
-  its own dependencies. Set `skipDefaultDependencyResolution: true` on at
-  least one entry to suppress Lima's default package installation entirely.
-- **`data`** — writes a file, never executes it. Requires `path`; content
-  comes from `content:` or `file:` (mutually exclusive). Defaults:
-  `owner: "root:root"`, `permissions: 644`, `overwrite: true` (set
-  `overwrite: false` to write only if absent). Missing parent directories are
-  created **as root** regardless of `owner` (observed on Lima 2.2.0: a data
-  file under `{{.Home}}/.config/...` left `~/.config` root-owned and broke the
-  user's own writes there) — so never target a `{{.Home}}` subdirectory that
-  does not already exist; stage the file under `/usr/local/lib/dev-vm/` and
-  copy it in a `user` script instead. reverse-sshfs mounts are not up yet at
-  this point.
-- **`yq`** — edits an existing file in place with a yq `expression`, creating
-  it if missing. `format` defaults to `auto` (from the extension); set it
-  explicitly for unrecognized extensions. Fails if the target is not writable
-  by `owner`.
-- **`system`** — root shell script, needs a shebang. Package installs,
-  systemd unit management, `/etc` and `/usr/local` writes.
-- **`user`** — runs via `sudo -iu <user>` with `XDG_RUNTIME_DIR` set, after
-  the user's systemd instance is up (`boot.sh` waits for
-  `/run/user/<uid>/systemd/private`). Needs a shebang. Only `PARAM_*` env vars
-  are preserved through sudo. Use this for anything touching the user's
-  systemd session, rootless daemons, or dotfiles.
+- **`boot`**: runs before mounts and before packages. At that time, the
+  network is not necessarily up. Use it only for things that must come before
+  everything else. This repo uses no `boot` entry. A `boot` script runs as
+  root before the guest login user exists. Thus a script that writes into
+  `{{.Home}}` (`ssh-known-hosts.sh`, for example) puts its files in `/root`.
+
+  For such scripts, use `user` mode.
+- **`dependency`**: adds package repos or packages before Lima installs its
+  own dependencies. To stop the default package installation of Lima
+  completely, set `skipDefaultDependencyResolution: true` on at least one
+  entry.
+- **`data`**: writes a file and never runs it. It requires `path`. The content
+  comes from `content:` or `file:`, but not from both. Defaults:
+  `owner: "root:root"`, `permissions: 644`, `overwrite: true`. To write the
+  file only if it is absent, set `overwrite: false`.
+
+  Lima creates missing parent directories **as root**, whatever the `owner`
+  value is. A test on Lima 2.2.0 showed this. A data file under
+  `{{.Home}}/.config/...` left `~/.config` owned by root. As a result, the
+  writes of the user in that directory failed. Thus never target a
+  `{{.Home}}` subdirectory that does not already exist.
+
+  Stage the file under `/usr/local/lib/dev-vm/` and copy it in a `user`
+  script. At this point, the reverse-sshfs mounts are not up yet.
+- **`yq`**: edits an existing file in place with a yq `expression`. If the
+  file is missing, it creates the file. `format` defaults to `auto`, from the
+  extension. For unrecognized extensions, set `format` explicitly. If `owner`
+  cannot write the target, the entry fails.
+- **`system`**: a root shell script. It needs a shebang. Use it for package
+  installs, systemd unit management, and writes to `/etc` and `/usr/local`.
+- **`user`**: runs through `sudo -iu <user>` with `XDG_RUNTIME_DIR` set. It
+  runs after the systemd instance of the user is up (`boot.sh` waits for
+  `/run/user/<uid>/systemd/private`). It needs a shebang. sudo keeps only the
+  `PARAM_*` env vars. Use this mode for all work that touches the systemd
+  session of the user, rootless daemons, or dotfiles.
 
 ### Inline script vs. `file:`
 
@@ -192,52 +224,58 @@ or
     url: scripts/thing.sh   # relative to the template file
 ```
 
-`file:` may be a plain string or an object with `url` and `digest` (`digest`
-is currently unused). `script`/`content` must be empty when `file` is set. The
-file is read and inlined at instance creation — see the flattening note above.
+`file:` can be a plain string or an object with `url` and `digest`. Lima does
+not use `digest` at this time. When `file` is set, `script`/`content` must be
+empty. At VM creation, Lima reads the file and puts its contents into the
+stored `lima.yaml` (see the flattening note above).
 
-Prefer `file:` with a script in `lima/scripts/`: it is shellcheck-able and
-diffable. Keep the shebang in the file (`#!/bin/sh`) and start with
-`set -eux` so failures surface in the boot log.
+Prefer `file:` with a script in `lima/scripts/`. A script file is
+shellcheck-able and diffable. Keep the shebang (`#!/bin/sh`) in the file.
+Start the script with `set -eux`, so that failures show in the boot log.
 
 ### Template variables
 
 Scripts, `data` `path`/`content`/`owner`, `yq` `expression`, and probes are Go
-templates evaluated on the host at creation time:
+templates. The host evaluates them at creation time. The variables are
 `{{.Home}}`, `{{.Name}}`, `{{.Hostname}}`, `{{.UID}}`, `{{.User}}`,
 `{{.Param.Key}}`. `{{.Home}}` is the **guest** home (`/home/<user>.linux`).
-Literal `{{`/`}}` intended for the guest must be avoided or escaped.
+Avoid a literal `{{`/`}}` that is for the guest, or escape it.
 
 ### Guest environment available to scripts
 
-`boot.sh` exports `/mnt/lima-cidata/lima.env` and `param.env` before running
-anything, so provision scripts see `LIMA_CIDATA_*`: `LIMA_CIDATA_USER`,
+Before it runs anything, `boot.sh` exports `/mnt/lima-cidata/lima.env` and
+`param.env`. Thus provision scripts see `LIMA_CIDATA_*`: `LIMA_CIDATA_USER`,
 `LIMA_CIDATA_UID`, `LIMA_CIDATA_HOME`, `LIMA_CIDATA_NAME`, `LIMA_CIDATA_MNT`,
 `LIMA_CIDATA_VMTYPE`, `LIMA_CIDATA_MOUNTS`, `LIMA_CIDATA_CONTAINERD_*`,
 `LIMA_CIDATA_PLAIN`, `LIMA_CIDATA_PASSWORDLESS_SUDO`, plus `PARAM_*` from
-`param:`. `user` mode additionally gets `XDG_RUNTIME_DIR=/run/user/<uid>`.
+`param:`. `user` mode also gets `XDG_RUNTIME_DIR=/run/user/<uid>`.
 
-They are internal, though: the hostagent scans provision scripts at creation
-time and warns `provisioning scripts should not reference the LIMA_CIDATA
-variables`. Use the Go template variables above (`{{.User}}`, `{{.Home}}`,
-`{{.UID}}`, `{{.Name}}`) instead — `PARAM_*` stays fine.
+But these variables are internal. At creation time, the hostagent scans the
+provision scripts and gives the warning `provisioning scripts should not
+reference the LIMA_CIDATA variables`. Use the Go template variables above
+(`{{.User}}`, `{{.Home}}`, `{{.UID}}`, `{{.Name}}`) in their place. `PARAM_*`
+is still correct to use.
 
 ### Probes
 
-`probes:` (`mode: readiness`) run as the user after provisioning and gate
-`limactl start` completion. Each needs a `#!` line; add a `hint:` shown on
-failure. Use a probe when a later step (or the operator) depends on a service
-actually being up, rather than sleeping inside a provision script. Only
-`script` is Go-templated — `hint` is not, so write literal text there.
+`probes:` (`mode: readiness`) run as the user after provisioning.
+`limactl start` does not complete before they pass. Each probe needs a `#!`
+line. Add a `hint:`, which Lima shows on failure. If a later step (or the
+operator) needs a service that is actually up, use a probe. Do not sleep
+inside a provision script for this.
 
-This repo probes the two things the VM exists for: the rootless Docker daemon
-answering `docker info`, and `ssh -T git@github.com` reporting `successfully
-authenticated` (that command exits non-zero even on success, so the probe
-matches on output).
+Only `script` is a Go template. `hint` is not, so write literal text in
+`hint`.
+
+This repo probes the two things that the VM exists for:
+
+- The rootless Docker daemon answers `docker info`.
+- `ssh -T git@github.com` reports `successfully authenticated`. That command
+  exits non-zero even on success, so the probe matches on the output.
 
 ### Settings file
 
-`~/.config/dev-vm/settings.json` is optional and has exactly two root keys:
+`~/.config/dev-vm/settings.json` is optional. It has exactly two root keys:
 
 ```json
 {
@@ -255,86 +293,96 @@ matches on output).
 ```
 
 - `loadSettings(name)` (`devvm.go`) decodes the file and returns one
-  `vmConfig`: `default` with `vms.<name>` layered over it by `mergeConfig`.
-  `cmdCreate` is its only caller — the settings shape nothing else in the tool
-  depends on.
-- Every field of `vmConfig` is a **pointer**. That is what separates an absent
-  key from an explicit `"clone": []` or `"dotfiles": ""`, both of which must
-  turn the default off rather than fall through to it. An override replaces the
-  key whole — `clone` lists are not concatenated.
-- The decoder runs with `DisallowUnknownFields`, so a typo fails the create
-  instead of being ignored, and an old flat settings file (VM keys at the root)
-  fails with a hint naming `default` and `vms`. There is no compatibility path:
-  such a file must be rewritten.
-- Reading the file needs the VM name, which comes from `parseArgs`, so
-  `cmdCreate` resolves settings *after* flag parsing — see [VM
-  size](#vm-size) for how the flags keep winning anyway.
+  `vmConfig`. To make it, `mergeConfig` puts `vms.<name>` over `default`.
+  `cmdCreate` is the only caller of `loadSettings`. No other part of the tool
+  depends on the settings shape.
+- Every field of `vmConfig` is a **pointer**. With a pointer, the code can
+  tell an absent key from an explicit `"clone": []` or `"dotfiles": ""`. Both
+  explicit values must turn the default off. They must not fall through to
+  the default. An override replaces the full key. The merge does not
+  concatenate `clone` lists.
+- The decoder runs with `DisallowUnknownFields`. Thus a typo makes the create
+  fail, and the tool does not ignore the typo. An old flat settings file (VM
+  keys at the root) fails with a hint that names `default` and `vms`. There is
+  no compatibility path. You must rewrite such a file.
+- To read the file, the tool needs the VM name, and the name comes from
+  `parseArgs`. Thus `cmdCreate` resolves the settings *after* flag parsing.
+  For how the flags still win, see [VM size](#vm-size).
 
 ### Rust toolchain
 
 `scripts/rust-user.sh` installs rustup (stable, `--profile minimal`) as the
-guest login user, for neovim plugins with a Rust component —
+guest login user. Neovim plugins with a Rust component need it. For example,
 [blink.cmp](https://github.com/saghen/blink.cmp) builds its fuzzy matcher with
 `cargo build --release`.
 
-- **User mode, not a system package.** rustup owns `~/.rustup` and `~/.cargo`,
-  so `rustup update`, `rustup component add` and `cargo install` need no sudo.
-  `neovim-system.sh` used to apt-install `cargo` for exactly this and no longer
-  does: crate MSRVs move much faster than an LTS archive, and two toolchains on
-  one `PATH` is worse than one. Do not add `cargo` back to that package list —
-  `build-essential` there is still required, since cargo needs a linker.
+- **User mode, not a system package.** rustup owns `~/.rustup` and
+  `~/.cargo`. Thus `rustup update`, `rustup component add` and `cargo install`
+  need no sudo. `neovim-system.sh` installed `cargo` with apt for this purpose
+  before, but it does not do this now. Crate MSRVs move much faster than an
+  LTS archive. Also, two toolchains on one `PATH` are worse than one.
+
+  Do not add `cargo` back to that package list. `build-essential` in that list
+  is still necessary, because cargo needs a linker.
 - **`PATH` comes from `files/rust.sh`** (`mode: data` →
-  `/etc/profile.d/rust.sh`), which prepends `~/.cargo/bin` when it exists.
-  rustup therefore runs with `--no-modify-path`: appending to `~/.zshrc` or
-  `~/.profile` would fight the dotfiles that own them. `zsh-system.sh` lists
-  that file alongside `docker-host.sh` and `dev-vm.sh` in the `/etc/zsh/zshenv`
-  loop, which is what puts cargo in reach of a non-login shell and of nvim
-  started from one.
-- Idempotent by skipping: an existing `~/.cargo/bin/cargo` ends the script, so
-  a reboot never re-downloads or silently upgrades the toolchain.
-- The other build inputs come from elsewhere and must stay: `git` from
-  `git-system.sh` (blink.cmp's `build.rs` shells out to `git rev-parse HEAD`)
-  and the linker from `build-essential`. blink.cmp needs Neovim 0.12+, which
-  the release tarball `install-neovim` fetches already satisfies.
+  `/etc/profile.d/rust.sh`). If `~/.cargo/bin` exists, that file prepends it.
+  Thus rustup runs with `--no-modify-path`. If rustup appends to `~/.zshrc` or
+  `~/.profile`, it fights the dotfiles that own those files. `zsh-system.sh`
+  lists that file with `docker-host.sh` and `dev-vm.sh` in the
+  `/etc/zsh/zshenv` loop. That loop puts cargo in reach of a non-login shell,
+  and of nvim that starts from such a shell.
+- The script is idempotent because it skips the work. If `~/.cargo/bin/cargo`
+  exists, the script stops. Thus a reboot never downloads the toolchain again
+  and never upgrades it silently.
+- The other build inputs come from other places and must stay:
+  - `git` comes from `git-system.sh`. The `build.rs` of blink.cmp runs
+    `git rev-parse HEAD`.
+  - The linker comes from `build-essential`.
+
+  blink.cmp needs Neovim 0.12+. The release tarball that `install-neovim`
+  downloads already satisfies this.
 
 ### Dotfiles
 
-`go run . create -dotfiles REPO` sets the `DOTFILES_REPO` param (via
-`--set`),
-which `lima/scripts/dotfiles.sh` reads as `PARAM_DOTFILES_REPO` in the guest:
-it clones the bare repo to `~/.dotfiles` and checks it out over `$HOME`.
-Empty param means the script exits 0 without doing anything.
+`go run . create -dotfiles REPO` sets the `DOTFILES_REPO` param (through
+`--set`). In the guest, `lima/scripts/dotfiles.sh` reads it as
+`PARAM_DOTFILES_REPO`. The script clones the bare repo to `~/.dotfiles` and
+checks it out over `$HOME`. If the param is empty, the script exits 0 and does
+nothing.
 
 - The repo can also come from the `dotfiles` key in
-  `~/.config/dev-vm/settings.json`, which turns dotfiles on for every VM.
-  `-dotfiles REPO` overrides it, `-no-dotfiles` skips it, and a per-VM
-  `"dotfiles": ""` turns it back off for that VM alone — see [Settings
+  `~/.config/dev-vm/settings.json`. That key turns dotfiles on for every VM.
+  `-dotfiles REPO` overrides it, and `-no-dotfiles` skips it. A per-VM
+  `"dotfiles": ""` turns dotfiles off again for that VM only. See [Settings
   file](#settings-file).
-- Pre-existing files the checkout would clobber move to `~/tmp/config-backup`
-  keeping their relative path.
-- A dotfiles checkout owning `~/.zshrc`/`~/.bashrc` cannot break `DOCKER_HOST`:
-  it is exported globally from `/etc/profile.d/docker-host.sh`, reached by
-  login shells through `/etc/profile` (zsh via `/etc/zsh/zprofile`) and by
-  every other zsh through the line `zsh-system.sh` adds to `/etc/zsh/zshenv`.
-- **The dotfiles own `~/.ssh/config` and are responsible for loading every ssh
-  config the VM ships.** Nothing in this repo writes that file. The GitHub
-  identity (`lima/files/ssh-github.conf`) is staged by `mode: data` at
-  `/usr/local/lib/dev-vm/ssh-github.conf` and installed by
-  `scripts/ssh-config-user.sh` as `~/.ssh/config.d/10-github.conf`, so the
-  dotfiles' own config must carry `Include ~/.ssh/config.d/*.conf` — near the
-  top, since ssh keeps the first value per keyword. The directory is created in
-  the `user` script, not by `mode: data`: data mode creates missing parents as
-  root, which would leave the user unable to drop its own files in.
-- Without that `Include` line (or without dotfiles at all) the drop-in is
-  inert. The github probe still passes — ssh tries `~/.ssh/id_ed25519` by
-  default and `git@github.com` supplies the user — but `IdentitiesOnly yes` is
+- Pre-existing files that the checkout overwrites move to
+  `~/tmp/config-backup`. Each file keeps its relative path.
+- A dotfiles checkout that owns `~/.zshrc`/`~/.bashrc` cannot break
+  `DOCKER_HOST`. `/etc/profile.d/docker-host.sh` exports it globally. Login
+  shells get that file through `/etc/profile` (zsh through
+  `/etc/zsh/zprofile`). Every other zsh gets it through the line that
+  `zsh-system.sh` adds to `/etc/zsh/zshenv`.
+- **The dotfiles own `~/.ssh/config`. They must load every ssh config file
+  that the VM ships.** Nothing in this repo writes that file. `mode: data`
+  stages the GitHub identity (`lima/files/ssh-github.conf`) at
+  `/usr/local/lib/dev-vm/ssh-github.conf`. Then `scripts/ssh-config-user.sh`
+  installs it as `~/.ssh/config.d/10-github.conf`. Thus the ssh config of the
+  dotfiles must contain `Include ~/.ssh/config.d/*.conf`.
+
+  Put that line near the top, because ssh keeps the first value for each
+  keyword. The `user` script creates the directory, not `mode: data`. Data
+  mode creates missing parent directories as root. Then the user cannot put
+  its own files in the directory.
+- Without that `Include` line, or without dotfiles, the drop-in has no effect.
+  The github probe still passes, because ssh tries `~/.ssh/id_ed25519` by
+  default and `git@github.com` supplies the user. But `IdentitiesOnly yes` is
   not in effect.
 
 ### Repository clones
 
 The `clone` key of the resolved settings block (see [Settings
-file](#settings-file)) lists repositories to clone in the guest, grouped per
-GitHub org:
+file](#settings-file)) lists the repositories to clone in the guest. The list
+groups them by GitHub org:
 
 ```json
 {"default": {"clone": [{"org": "robsonpeixoto",
@@ -342,266 +390,317 @@ GitHub org:
                         "repositories": ["dev-vm", "echo-server"]}]}}
 ```
 
-- `settingsClones` (`create.go`) validates and flattens it to one
-  `{basedir, org/repo}` entry per repository; `cloneList` renders the guest
-  list, tab-separated, one line per repository behind a comment header. The
-  header is not decoration: it keeps the file non-empty when nothing is
-  configured, since the `mode: data` entry for it is unconditional.
-- `startVM` writes it to `tmp/clone-list` in the materialized template tree —
-  the same trick as the private key at `tmp/default` — and `mode: data` stages
-  it at `/usr/local/lib/dev-vm/clone-list`.
-- `scripts/clone-user.sh` is the **last** `user` script: cloning needs the
-  provisioned key, `known_hosts` and git from the steps before it. It expands
-  `${HOME}`/`$HOME` in `basedir` in the guest (the host cannot: that path is
-  the guest home), skips a repository whose `<basedir>/<repo>` already exists,
-  and logs-and-skips one that fails to clone so a single unreachable repo does
-  not take the rest down.
-- No flag configures this; the setting is the only input, and it is read at
-  create time like everything else in the template. A per-VM `"clone": []`
-  clones nothing for that VM while the default block stays intact for the
-  others.
+- `settingsClones` (`create.go`) validates the list and flattens it to one
+  `{basedir, org/repo}` entry per repository. `cloneList` builds the guest
+  list: tab-separated, one line per repository, after a comment header. The
+  header is necessary, not decoration. When the settings list no clones, the
+  header keeps the file non-empty. This is necessary because the `mode: data`
+  entry for the file is unconditional.
+- `startVM` writes the list to `tmp/clone-list` in the materialized template
+  tree. The private key at `tmp/default` uses the same method. Then
+  `mode: data` stages the list at `/usr/local/lib/dev-vm/clone-list`.
+- `scripts/clone-user.sh` is the **last** `user` script. To clone, it needs
+  the provisioned key, `known_hosts` and git from the earlier steps. The
+  script does these steps:
+  - It expands `${HOME}`/`$HOME` in `basedir` in the guest. The host cannot
+    do this, because that path is the guest home.
+  - If `<basedir>/<repo>` already exists, it skips that repository.
+  - If a repository fails to clone, it logs the failure and skips that
+    repository. Thus one unreachable repo does not stop the others.
+- No flag configures clones. The setting is the only input. The tool reads it
+  at create time, like everything else in the template. A per-VM
+  `"clone": []` clones nothing for that VM. The default block stays intact
+  for the other VMs.
 
 ### mkcert root CA
 
 `"mkcert": true` in the resolved settings block copies the host mkcert CA into
-the guest, so a certificate issued on either side is trusted on both.
+the guest. As a result, both sides trust a certificate that either side
+issues.
 
-- `resolveCAROOT` (`create.go`) runs `mkcert -CAROOT` on the host and requires
-  both `rootCA.pem` and `rootCA-key.pem` to be there — the setting asked for
-  the CA, so a missing binary or a missing file is a `die`, not a silent skip.
-  The key is copied along with the certificate on purpose: without it the guest
-  can trust the CA but not issue from it.
-- `startVM` writes both files into `tmp/` of the materialized template tree,
-  the same trick as the private key and the clone list, and two unconditional
-  `mode: data` entries stage them at `/usr/local/lib/dev-vm/`. With the setting
-  off the files are written empty, which `mkcert-user.sh` treats as "do
-  nothing". `rootCA-key.pem` is staged `owner: "{{.User}}"`, `permissions: 600`
-  — a root-only file would be unreadable by the user script that installs it.
-- `scripts/mkcert-user.sh` runs after `mise-user.sh` (mkcert usually comes from
-  mise, so by then `mkcert -CAROOT` can answer for itself) and installs the
-  pair into `$CAROOT`, else `${XDG_DATA_HOME:-$HOME/.local/share}/mkcert`.
-  It must not write into `$HOME` through `mode: data`: `~/.local/share` also
-  holds mise's own tree, and data mode would create it root-owned.
-- `startSet` adds `.caCerts.files = ["<host CAROOT>/rootCA.pem"]`, which
-  cloud-init installs into `/usr/local/share/ca-certificates` and trusts with
-  `update-ca-certificates`. That is a **host** path stored in the instance's
-  `lima.yaml`, and the hostagent re-reads it on every start when it regenerates
-  `cidata.iso` — so the temp tree copy would not do, and removing the host
-  CAROOT later breaks `devvm start` for that VM.
-- Nothing runs `mkcert -install` in the guest: `caCerts` covers the system
-  store, and the browser NSS store is the operator's business
-  (`libnss3-tools` is installed by `packages-system.sh`).
+- `resolveCAROOT` (`create.go`) runs `mkcert -CAROOT` on the host. Both
+  `rootCA.pem` and `rootCA-key.pem` must be in that directory. The setting
+  asks for the CA. Thus a missing binary or a missing file is a `die`, not a
+  silent skip. The tool copies the key with the certificate on purpose.
+  Without the key, the guest can trust the CA but cannot issue certificates
+  from it.
+- `startVM` writes both files into `tmp/` of the materialized template tree.
+  It uses the same method as for the private key and the clone list. Two
+  unconditional `mode: data` entries stage the files at
+  `/usr/local/lib/dev-vm/`. If the setting is off, the tool writes the files
+  empty, and `mkcert-user.sh` then does nothing.
+
+  `rootCA-key.pem` is staged with `owner: "{{.User}}"` and
+  `permissions: 600`. The user script that installs the key cannot read a
+  root-only file.
+- `scripts/mkcert-user.sh` runs after `mise-user.sh`. mkcert usually comes
+  from mise, so at that time `mkcert -CAROOT` can give the answer itself. The
+  script installs the pair into `$CAROOT`, else into
+  `${XDG_DATA_HOME:-$HOME/.local/share}/mkcert`. It must not write into
+  `$HOME` through `mode: data`. `~/.local/share` also holds the tree of mise.
+  If data mode creates that directory, it makes it owned by root.
+- `startSet` adds `.caCerts.files = ["<host CAROOT>/rootCA.pem"]`. cloud-init
+  installs that file into `/usr/local/share/ca-certificates` and trusts it
+  with `update-ca-certificates`. That value is a **host** path in the
+  `lima.yaml` of the VM. The hostagent reads it again on every start, when it
+  regenerates `cidata.iso`. Thus the copy in the temp tree is not sufficient.
+
+  If you delete the host CAROOT later, `devvm start` breaks for that VM.
+- Nothing runs `mkcert -install` in the guest. `caCerts` covers the system
+  store. The browser NSS store is the job of the operator
+  (`packages-system.sh` installs `libnss3-tools`).
 
 ### ghostty terminfo
 
-`"ghostty": true` compiles the `xterm-ghostty` terminfo entry in the guest, so
-the `TERM` Ghostty exports survives `limactl shell` and ssh.
+`"ghostty": true` compiles the `xterm-ghostty` terminfo entry in the guest.
+Thus the `TERM` that Ghostty exports survives `limactl shell` and ssh.
 
-- `hostTerminfo` (`create.go`) runs `$(brew --prefix ncurses)/bin/infocmp -x
-  xterm-ghostty`. **Homebrew's infocmp, not the macOS one**: `/usr/bin/infocmp`
-  is ncurses 6.0.20150808 and mangles the extended (`-x`) capabilities that are
-  most of the entry. A missing binary is a `die` naming
-  `brew install ncurses`.
-- The entry is looked up through `TERMINFO`, which Ghostty sets to its app
-  bundle. `create` may run outside Ghostty, so a failed dump is retried with
+- `hostTerminfo` (`create.go`) runs
+  `$(brew --prefix ncurses)/bin/infocmp -x xterm-ghostty`. **It uses the
+  Homebrew infocmp, not the macOS one.** `/usr/bin/infocmp` is ncurses
+  6.0.20150808. It mangles the extended (`-x`) capabilities, and these
+  capabilities are most of the entry. If the binary is missing, the result is
+  a `die` that names `brew install ncurses`.
+- The tool looks up the entry through `TERMINFO`. Ghostty sets `TERMINFO` to
+  its app bundle. `create` can run outside Ghostty. Thus, if the dump fails,
+  the tool tries again with
   `TERMINFO=/Applications/Ghostty.app/Contents/Resources/terminfo`.
-- The dump is staged **base64-encoded**, via `terminfoB64`. That is not
-  cosmetic: Lima runs `mode: data` content *and* provision scripts through a Go
-  template on the host, and the entry's `acsc` capability lists the ACS pairs
-  for the box-drawing characters, doubled braces among them. The template
-  parser reads those as an action and rejects the file
-  (`unexpected "|" in command`); Lima logs
-  `Couldn't process data content as a template` and the payload survives only
-  by falling back to the unparsed text. The same trap caught a *comment* in
-  `ghostty-terminfo-system.sh` that quoted the braces literally — that script
-  failed to parse with `unterminated raw quoted string`. Never put doubled
-  braces in a provision script, comments included.
-- `scripts/ghostty-terminfo-system.sh` is a **system** script (after
-  `packages-system.sh`): `base64 -d | tic -x -o /usr/share/terminfo -`, so root
-  and sudo shells resolve the entry too, not just the login user. It installs
-  `ncurses-bin` when `tic` is missing, and skips an empty staged file.
-- Nothing sets `TERM` in the guest; ssh and `limactl shell` carry the host
+- The tool stages the dump **base64-encoded**, through `terminfoB64`. This is
+  not cosmetic. Lima runs `mode: data` content *and* provision scripts through
+  a Go template on the host. The `acsc` capability of the entry lists the ACS
+  pairs for the box-drawing characters, and doubled braces are among them. The
+  template parser reads those braces as an action and rejects the file
+  (`unexpected "|" in command`). Lima logs
+  `Couldn't process data content as a template`.
+
+  The payload survives only because Lima falls back to the unparsed text. The
+  same trap caught a *comment* in `ghostty-terminfo-system.sh` that quoted the
+  braces literally. That script failed to parse with
+  `unterminated raw quoted string`. Never put doubled braces in a provision
+  script. This rule includes comments.
+- `scripts/ghostty-terminfo-system.sh` is a **system** script. It runs after
+  `packages-system.sh` and does `base64 -d | tic -x -o /usr/share/terminfo -`.
+  Thus root and sudo shells resolve the entry too, not only the login user. If
+  `tic` is missing, the script installs `ncurses-bin`. If the staged file is
+  empty, the script skips it.
+- Nothing sets `TERM` in the guest. ssh and `limactl shell` carry the host
   value.
 
 ### Nested virtualization
 
 `-nested` (or `"nested": true` in the resolved settings block) patches
-`.nestedVirtualization = true` into the template, so the guest kernel gets
-virtualization extensions and creates `/dev/kvm`.
+`.nestedVirtualization = true` into the template. As a result, the guest
+kernel gets virtualization extensions and creates `/dev/kvm`.
 
-- `resolveNested` (`create.go`) is the boolean twin of `resolveResources`: the
-  flag wins **in both directions** when `fs.Visit` saw it, so `-nested=false`
-  overrides a `default` block that turns nesting on, and only an absent flag
-  falls through to the setting. There is no `-no-nested`; a bool flag does not
-  need one.
-- `checkNested` runs before the GitHub key is registered, because vz fails the
-  *start* on unsupported hardware — long after `create` has changed state on
-  GitHub. It parses `machdep.cpu.brand_string` with `appleChipRE` and requires
-  `Apple M<n>` with `n >= 3` (`nestedMinChip`); Apple exposes no sysctl for the
-  capability, and vz's own probe needs a running VM. Intel and M1/M2 are
-  rejected.
+- `resolveNested` (`create.go`) is the boolean twin of `resolveResources`.
+  When `fs.Visit` saw the flag, the flag wins **in both directions**. Thus
+  `-nested=false` overrides a `default` block that turns nesting on. Only an
+  absent flag falls through to the setting. There is no `-no-nested`, because
+  a bool flag does not need one.
+- `checkNested` runs before the tool registers the GitHub key. The reason: on
+  unsupported hardware, vz fails the *start*, long after `create` changed
+  state on GitHub. `checkNested` parses `machdep.cpu.brand_string` with
+  `appleChipRE`. It requires `Apple M<n>` with `n >= 3` (`nestedMinChip`).
+  Apple exposes no sysctl for the capability, and the probe in vz itself needs
+  a running VM. The check rejects Intel and M1/M2.
 - `startSet` writes the field **unconditionally** (`= true` or `= false`),
-  unlike `caCerts.files`, so `lima/dev-vm.yaml`'s `nestedVirtualization: false`
-  is documentation, never the effective value.
-- `scripts/kvm-system.sh` puts the login user in the `kvm` group — udev gives
-  `/dev/kvm` mode 0660 `root:kvm` and the Ubuntu image leaves the user out of
-  it, so without this the device needs sudo. It exits 0 when `/dev/kvm` is
-  absent, which is every VM created without nesting.
-- Nothing installs QEMU or Lima in the guest; that stays the operator's job,
-  like every other upgrade in this repo.
+  unlike `caCerts.files`. Thus `nestedVirtualization: false` in
+  `lima/dev-vm.yaml` is documentation, never the effective value.
+- `scripts/kvm-system.sh` puts the login user in the `kvm` group. udev gives
+  `/dev/kvm` mode 0660 `root:kvm`, and the Ubuntu image does not put the user
+  in that group. Without this script, the device needs sudo. If `/dev/kvm` is
+  absent, the script exits 0. That is the case for every VM that the tool
+  creates without nesting.
+- Nothing installs QEMU or Lima in the guest. That stays the job of the
+  operator, like every other upgrade in this repo.
 
 ### Host mounts
 
 The `mounts` key of the resolved settings block lists host directories to
-share into the guest, each `{"source", "destination", "mode"}`.
+share into the guest. Each entry is `{"source", "destination", "mode"}`.
 
-- `settingsMounts` (`create.go`) validates it and returns `[]mount` in Lima's
-  terms (`location`, `mountPoint`, `writable`). `source` and `destination`
-  must be absolute, `~` or `~/...` and match `mountPathRE` (`devvm.go`) — no
-  quotes, backslashes, braces or control characters, since the paths go into a
-  quoted yq string and then through Lima's Go templates. `mode` is `"ro"` or
-  `"rw"`, defaulting to `"ro"` like Lima's `writable: false`.
-- **`~` means a different home on each side.** Lima tilde-expands `location`
-  on the host but rejects a `mountPoint` starting with `~` (`validate.go`:
-  "there is no tilde-expansion for guest filenames"). So a `~` destination is
-  rewritten to `{{.Home}}...`, which Lima templates to the guest home, and an
-  absent destination is left out of the entry entirely, letting Lima mount at
-  the expanded host path. Never default it to `source` verbatim: a `~/x`
-  source would then become a rejected `~/x` mount point.
-- `startSet` writes `.mounts = [...]` **unconditionally**, empty when nothing
-  is configured, so the template's `mounts: []` is documentation like the
-  size fields. Mounts are fixed at create time with everything else.
-- Mounts need `plain: false` (plain mode turns mounts off), which the
-  template currently has.
-- No flag configures this; a per-VM `"mounts": []` turns the default list off
-  for that VM.
+- `settingsMounts` (`create.go`) validates the list and returns `[]mount` in
+  Lima terms (`location`, `mountPoint`, `writable`). `source` and
+  `destination` must be absolute, `~` or `~/...`. They must also match
+  `mountPathRE` (`devvm.go`): no quotes, backslashes, braces or control
+  characters. The reason: the paths go into a quoted yq string and then
+  through the Go templates of Lima. `mode` is `"ro"` or `"rw"`. The default is
+  `"ro"`, like `writable: false` in Lima.
+- **`~` means a different home on each side.** On the host, Lima expands the
+  tilde in `location`. But Lima rejects a `mountPoint` that starts with `~`
+  (`validate.go`: "there is no tilde-expansion for guest filenames"). Thus the
+  tool rewrites a `~` destination to `{{.Home}}...`, and Lima templates that
+  to the guest home.
+
+  If the destination is absent, the tool leaves it out of the entry
+  completely. Lima then mounts at the expanded host path. Never default the
+  destination to `source` verbatim. With that default, a `~/x` source becomes
+  a `~/x` mount point, and Lima rejects it.
+- `startSet` writes `.mounts = [...]` **unconditionally**. If the settings
+  have no mounts, the list is empty. Thus the `mounts: []` of the template is
+  documentation, like the size fields. Mounts are fixed at create time with
+  everything else.
+- Mounts need `plain: false`, because plain mode turns mounts off. The
+  template has `plain: false` at this time.
+- No flag configures mounts. A per-VM `"mounts": []` turns the default list
+  off for that VM.
 
 ### VM size
 
-`cpus`, `memory` and `disk` are **top-level template fields**, not params, so
-`devvm create` patches them with `.cpus = N | .memory = "NGiB" | .disk = "NGiB"`
-rather than `.param.*`. Resolution order: `resolveResources` (`create.go`)
-starts from `defaultResources` (2 vCPUs, 2 GiB, 50 GiB), applies the
-`cpus`/`memory`/`disk` keys of the resolved settings block, then applies
-whichever of `-cpus`/`-memory`/`-disk` were actually passed. The values in
-`lima/dev-vm.yaml` are documentation only — `--set` always overwrites them.
+`cpus`, `memory` and `disk` are **top-level template fields**, not params.
+Thus `devvm create` patches them with
+`.cpus = N | .memory = "NGiB" | .disk = "NGiB"` and not with `.param.*`.
+`resolveResources` (`create.go`) resolves the size in this order:
 
-The flags are registered with a **zero** default and the settings are applied
-after parsing, not before: the settings block depends on the VM name, and the
-name only exists once `parseArgs` has run. `flagsSet` (`fs.Visit`) is what
-tells an unset flag from `-cpus 0`, so the zero default never leaks into the
+1. It starts from `defaultResources` (2 vCPUs, 2 GiB, 50 GiB).
+2. It applies the `cpus`/`memory`/`disk` keys of the resolved settings block.
+3. It applies each of `-cpus`/`-memory`/`-disk` that the user actually passed.
+
+The values in `lima/dev-vm.yaml` are documentation only. `--set` always
+overwrites them.
+
+The tool registers the flags with a **zero** default. It applies the settings
+after parsing, not before. The reason: the settings block depends on the VM
+name, and the name exists only after `parseArgs` runs. `flagsSet` (`fs.Visit`)
+tells an unset flag from `-cpus 0`. Thus the zero default never gets into the
 template.
 
-Flags and settings are integers in GiB; non-integers are rejected by the `flag`
-package and non-positive values by `resolveResources` (settings) and
-`checkResources` (flags), all before the VM starts. Because the template is
-flattened at creation, the size is fixed for the instance's life: resizing
-means `limactl edit` or delete + create.
+Flags and settings are integers in GiB. The `flag` package rejects
+non-integers. `resolveResources` (settings) and `checkResources` (flags)
+reject non-positive values. All these rejections occur before the VM starts.
+
+Lima flattens the template at creation. Thus the size is fixed for the life
+of the VM. To change the size, run `limactl edit`, or delete the VM and
+create it again.
 
 `devvm disk-resize [name] <GiB>` (`diskresize.go`) is the one exception for
 the disk:
 
-- It reads the current size from `limaInstances` and refuses a smaller one
-  before touching the VM — Lima grows a disk, never shrinks it. It also calls
-  `loadSettings` first, so a broken settings file fails before the stop.
-- A `Running` VM is stopped, `limactl edit --tty=false --disk N` runs, and the
-  VM is started again; any other status is left as it was. `--tty=false`
-  keeps `edit` from offering to start the instance itself.
-- `setSettingsDisk` writes `vms.<name>.disk` **before** the restart: the edit
-  has already taken, so a failing start (a probe) must not leave the settings
-  behind the instance.
+- It reads the current size from `limaInstances`. If the new size is smaller,
+  it refuses it before it touches the VM. Lima grows a disk, but never shrinks
+  it. It also calls `loadSettings` first. Thus a broken settings file fails
+  before the stop.
+- The command runs `limactl edit --tty=false --disk N`. If the VM is
+  `Running`, the command stops the VM before the edit and starts it again
+  after the edit. For any other status, the command leaves the VM as it was.
+  Without `--tty=false`, `edit` offers to start the VM itself.
+- `setSettingsDisk` writes `vms.<name>.disk` **before** the restart. At that
+  point, the edit is already done. Thus a failed start (a probe) must not
+  leave the settings behind the VM.
 - `withVMDisk` round-trips the file through `encoding/json/v2` with
-  `jsontext.Value` leaves, not through `vmConfig`: untouched blocks keep their
-  key order (only the indentation is redone), and nothing is dropped. Only
-  the root, `vms` and the edited block are re-marshaled, sorted by
-  `json.Deterministic`.
+  `jsontext.Value` leaves, not through `vmConfig`. Thus untouched blocks keep
+  their key order (the tool redoes only the indentation), and nothing is lost.
+  The tool marshals again only the root, `vms` and the edited block.
+  `json.Deterministic` sorts them.
 
-`go run . list` reads the live `cpus`/`memory`/`disk` back out of
-`limactl list --format json`, where memory and disk are **bytes**. That is the
-declared *size* only — Lima reports no usage figure, so disk pressure is a
-guest question (`docker system df`, `df -h /`) and `list` deliberately stays out
-of it. Nothing prunes the disk on a schedule — the VM runs no cron at all — so
-reclaiming space is a manual `docker system prune`; see the disk hygiene
+`go run . list` reads the live `cpus`/`memory`/`disk` from
+`limactl list --format json`. In that output, memory and disk are in
+**bytes**. These values are the declared *size* only. Lima reports no usage
+figure. Thus disk pressure is a guest question (`docker system df`,
+`df -h /`), and `list` deliberately stays out of it.
+
+Nothing prunes the disk on a schedule, because the VM runs no cron at all. To
+reclaim space, run `docker system prune` manually. See the disk hygiene
 section of README.md.
 
 ### Guest OS pin
 
-`base:` in `lima/dev-vm.yaml` names one release —
-`template:_images/ubuntu-26.04` — and never `template:_images/ubuntu-lts`.
-`ubuntu-lts.yaml` is a **symlink shipped inside the installed Lima**
-(in v2.2.0 it points at `ubuntu-26.04.yaml`), so it resolves against whichever
-Lima is on the host: a Lima upgrade would move new VMs to the next LTS with no
-change in this repo.
+`base:` in `lima/dev-vm.yaml` names one release:
+`template:_images/ubuntu-26.04`. It must never name
+`template:_images/ubuntu-lts`. `ubuntu-lts.yaml` is a **symlink that ships
+inside the installed Lima** (in v2.2.0, it points at `ubuntu-26.04.yaml`).
+Thus it resolves against the Lima that is on the host. With `ubuntu-lts`, a
+Lima upgrade moves new VMs to the next LTS with no change in this repo.
 
-- Verify a template name without booting anything — it must exist as
-  `_images/ubuntu-XX.YY.yaml` in `$(brew --prefix lima)/share/lima/templates/`
-  (or under `templates/_images` at the matching upstream tag).
-- `base` is merged at creation, so changing the pin affects only VMs created
-  afterwards; existing ones keep their release for life.
-- The bump procedure and its new-LTS checklist (boot, docker probe, github
-  probe) live in the "Guest OS" section of README.md. Gate on Docker's apt repo
-  carrying the new codename — `docker-system.sh` derives it from the guest's
-  `VERSION_CODENAME`, so bumping first breaks provisioning at `apt-get update`.
+- Make sure that a template name exists. You do not need to boot anything for
+  this. The name must exist as `_images/ubuntu-XX.YY.yaml` in
+  `$(brew --prefix lima)/share/lima/templates/`, or under `templates/_images`
+  at the matching upstream tag.
+- Lima merges `base` at creation. Thus a change to the pin affects only the
+  VMs that you create after the change. Existing VMs keep their release for
+  life.
+- The "Guest OS" section of README.md has the bump procedure and its new-LTS
+  checklist (boot, docker probe, github probe). Bump the pin only after the
+  apt repo of Docker carries the new codename. `docker-system.sh` gets the
+  codename from the `VERSION_CODENAME` of the guest. Thus, if you bump first,
+  provisioning breaks at `apt-get update`.
 
 ### Debugging
 
 - Host: `~/.lima/<name>/ha.stderr.log`, `serial*.log`.
-- Guest: `/var/log/cloud-init-output.log` — provision script stdout/stderr,
-  each prefixed by `LIMA <timestamp>| Executing /mnt/lima-cidata/provision.<mode>/<NNNNNNNN>`.
-- Re-run provisioning without recreating: `limactl stop <name> && limactl start <name>`.
-- Inspect what actually shipped: `limactl shell <name> sudo ls /mnt/lima-cidata`
-  (root-only, mode 0700) and `~/.lima/<name>/lima.yaml` on the host.
+- Guest: `/var/log/cloud-init-output.log`. It holds the stdout/stderr of the
+  provision scripts. The output of each script starts with
+  `LIMA <timestamp>| Executing /mnt/lima-cidata/provision.<mode>/<NNNNNNNN>`.
+- To run provisioning again without a new VM, run
+  `limactl stop <name> && limactl start <name>`.
+- To see what Lima actually shipped, run
+  `limactl shell <name> sudo ls /mnt/lima-cidata` (root-only, mode 0700).
+  Also read `~/.lima/<name>/lima.yaml` on the host.
 
 ### Writing provision scripts for this repo
 
-- Put executable logic in `lima/scripts/*.sh`, reference it via `file.url`.
-- `#!/bin/sh` + `set -eux` (or `set -eu` when output would leak secrets).
-- Indent with 4 spaces, not tabs, and run `make format` before committing —
-  never a bare `shfmt`/`gofmt`, so the flags stay in one place. The `Makefile`
-  holds `format`/`check-format` and their `-go`/`-shell` halves; `SHELL_DIRS`
-  (`lima completions`) is the list shfmt walks, finding shell files by extension
-  or shebang, so the extensionless `lima/files/install-neovim` needs no
-  listing. The width comes
-  from the repo-root `.editorconfig` (`root = true`, so it covers every
-  directory) and its `[[shell]]` section, an shfmt extension that matches by
-  shebang too. CI's `check` job runs `make check-format-go`, its `shell` job
-  `make check-format-shell` plus `shellcheck`, including
-  `-s bash completions/dev-vm.bash`; the zsh and fish completions are dialects
-  shellcheck cannot read.
-- Idempotent, always — the script reruns on every boot.
-- Root work in `system`, per-user/systemd work in `user`, never mix.
-- No `-o DPkg::Lock::Timeout` anywhere. apt already defaults
-  `Dpkg::Lock::Timeout` to 120 s whenever stdin is not a tty
-  (`BinarySpecificConfiguration` in apt's `private-cmndline.cc`, since apt
-  2.0), which covers every non-interactive run, and the flag never applied to
-  `apt-get update` in the first place: the lists lock goes through
-  `pkgAcquire::GetLock` → `GetLock` (a non-blocking `F_SETLK`), not
-  `GetLockMaybeWait`. Contention is solved by having no second apt scheduler —
-  see the no-auto-upgrade note below — not by passing the option.
-- Secrets and config files go through `mode: data` with explicit `owner` and
-  `permissions`, not `echo` or a heredoc inside a script. Static payloads live
-  in `lima/files/`, referenced with `file.url` like the scripts.
+- Put executable logic in `lima/scripts/*.sh`. Refer to it with `file.url`.
+- Start each script with `#!/bin/sh` + `set -eux`. If the output can leak
+  secrets, use `set -eu` in its place.
+- Indent with 4 spaces, not tabs. Before you commit, run `make format`. Never
+  run a bare `shfmt`/`gofmt`, so that the flags stay in one place.
+
+  The `Makefile` holds `format`/`check-format` and their `-go`/`-shell`
+  halves. `SHELL_DIRS` (`lima completions`) is the list that shfmt walks.
+  shfmt finds shell files by extension or by shebang. Thus the extensionless
+  `lima/files/install-neovim` needs no entry in that list.
+
+  The width comes from the `.editorconfig` at the repo root and from its
+  `[[shell]]` section. `root = true` makes that file cover every directory.
+  The `[[shell]]` section is an shfmt extension that also matches files by
+  shebang.
+
+  In CI, the `check` job runs `make check-format-go`. The `shell` job runs
+  `make check-format-shell` plus `shellcheck`, also with
+  `-s bash completions/dev-vm.bash`. The zsh and fish completions are dialects
+  that shellcheck cannot read.
+- Make every script idempotent. The script runs again on every boot.
+- Do root work in `system` scripts. Do per-user/systemd work in `user`
+  scripts. Never mix the two.
+- Never use `-o DPkg::Lock::Timeout`.
+
+  When stdin is not a tty, apt already sets `Dpkg::Lock::Timeout` to 120 s by
+  default (`BinarySpecificConfiguration` in `private-cmndline.cc` of apt,
+  since apt 2.0). That default covers every non-interactive run. Also, the
+  flag never applied to `apt-get update`. For that command, the lists lock
+  goes through `pkgAcquire::GetLock` → `GetLock` (a non-blocking `F_SETLK`),
+  not `GetLockMaybeWait`.
+
+  The solution for contention is to have no second apt scheduler (see the
+  no-auto-upgrade note below). The option is not the solution.
+- Send secrets and configuration files through `mode: data` with an explicit
+  `owner` and `permissions`. Do not write them with `echo` or a heredoc inside
+  a script. Static payloads live in `lima/files/`. Refer to them with
+  `file.url`, like the scripts.
 - **Nothing in the guest upgrades itself, and nothing runs on a schedule.**
-  There is no cron, no `cron.d`, no `unattended-upgrades`. Boot provisioning
-  installs what is missing and stops there; upgrading is the operator's
-  `apt-get upgrade` (plus `/usr/local/lib/dev-vm/install-neovim` for neovim,
-  which apt does not carry). Two pieces enforce it and must stay:
-  `scripts/no-auto-upgrades-system.sh` **masks** `apt-daily.timer`,
-  `apt-daily-upgrade.timer`, both of their services and
-  `unattended-upgrades.service` (the timers fire in a randomized window and,
-  being `Persistent=true`, catch up right after a VM start, next to boot
-  provisioning), and the `mode: data` file
-  `lima/files/apt/99dev-vm-no-auto-upgrades` zeros every `APT::Periodic` key.
-  Mask, never merely disable: an apt upgrade re-enables a disabled unit, and a
-  masked unit cannot be started even while it is still enabled.
-- Do not reintroduce a scheduler. A recurring job would be a second apt client
-  racing boot provisioning for the dpkg lock, and version drift nobody asked
-  for. Anything periodic belongs on the host side of the VM, or in the
-  operator's hands.
-- Templates, scripts and static files are embedded into the Go binary with
-  `//go:embed` (see `embed.go`) and materialized into a temp dir at create
-  time; `go run .` picks up edits automatically, a prebuilt `devvm` binary
-  must be rebuilt.
-- After changing a template or script, the VM must be recreated
-  (`go run . delete <name> && go run . create <name>`) for the change to
-  apply.
+  There is no cron, no `cron.d`, and no `unattended-upgrades`. Boot
+  provisioning installs what is missing and then stops. Upgrades are the job
+  of the operator: `apt-get upgrade`, plus
+  `/usr/local/lib/dev-vm/install-neovim` for neovim, which apt does not carry.
+  Two parts enforce this rule, and both must stay:
+  - `scripts/no-auto-upgrades-system.sh` **masks** `apt-daily.timer`,
+    `apt-daily-upgrade.timer`, both of their services and
+    `unattended-upgrades.service`. The timers fire in a random window. They
+    are `Persistent=true`, so they catch up right after a VM start, at the
+    same time as boot provisioning.
+  - The `mode: data` file `lima/files/apt/99dev-vm-no-auto-upgrades` sets
+    every `APT::Periodic` key to zero.
+
+  Mask the units. Never only disable them. An apt upgrade enables a disabled
+  unit again. Nothing can start a masked unit, even while it is still enabled.
+- Do not add a scheduler again. A recurring job is a second apt client that
+  races boot provisioning for the dpkg lock. It also causes version drift that
+  nobody asked for. Anything periodic belongs on the host side of the VM, or in
+  the hands of the operator.
+- `//go:embed` (see `embed.go`) embeds the templates, scripts and static files
+  into the Go binary. At create time, the tool materializes them into a temp
+  dir. `go run .` gets edits automatically. You must rebuild a prebuilt
+  `devvm` binary.
+- If you change a template or a script, recreate the VM
+  (`go run . delete <name> && go run . create <name>`). Otherwise, the change
+  does not apply.
