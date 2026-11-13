@@ -9,6 +9,7 @@ go run . create [name]    # create and start the VM
 go run . start [name]     # boot a stopped VM
 go run . stop [name]      # shut it down, keeping the disk
 go run . delete [name]    # delete it (confirms first; -force skips)
+go run . disk-resize [name] <GiB>  # grow the disk, keeping the guest
 go run . list             # list VMs with status, size, IP and SSH hostname
 go run . status [name]    # one VM in detail, including its IP
 go run . status [name] -ip  # just the IP, for scripts
@@ -716,10 +717,25 @@ limactl shell <name> df -h /
 Resizing is the painful part: `cpus`, `memory` and `disk` are baked into
 `~/.lima/<name>/lima.yaml` at create time. Pick the size up front —
 `go run . create myvm -disk 100`, or the `disk` key of the `default` block in
-`~/.config/dev-vm/settings.json` for every VM (or of a `vms` block for one). Afterwards the only paths are
-`limactl stop <name>` plus `limactl edit <name>` to raise `disk:` (Lima grows a
-disk, never shrinks it), or `go run . delete myvm && go run . create myvm
--disk 100`, which throws the guest away.
+`~/.config/dev-vm/settings.json` for every VM (or of a `vms` block for one).
+The disk alone can grow afterwards, keeping the guest:
+
+```sh
+go run . disk-resize myvm 100
+```
+
+- Stops a running VM, runs `limactl edit myvm --disk 100` and starts it again;
+  a stopped VM stays stopped and grows on its next start.
+- Lima grows a disk, never shrinks it, so a smaller size is refused before the
+  VM is touched.
+- Writes `"disk": 100` into the `vms.myvm` block of `settings.json` (creating
+  the file if needed), so a later delete + create keeps the size. The blocks it
+  edits — the root, `vms` and `vms.myvm` — come out with their keys sorted;
+  every other block keeps its order.
+
+CPUs and memory have no such command: `limactl stop <name>` plus
+`limactl edit <name>`, or `go run . delete myvm && go run . create myvm`, which
+throws the guest away.
 
 ## Provisioning steps
 

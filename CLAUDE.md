@@ -498,6 +498,24 @@ package and non-positive values by `resolveResources` (settings) and
 flattened at creation, the size is fixed for the instance's life: resizing
 means `limactl edit` or delete + create.
 
+`devvm disk-resize [name] <GiB>` (`diskresize.go`) is the one exception for
+the disk:
+
+- It reads the current size from `limaInstances` and refuses a smaller one
+  before touching the VM — Lima grows a disk, never shrinks it. It also calls
+  `loadSettings` first, so a broken settings file fails before the stop.
+- A `Running` VM is stopped, `limactl edit --tty=false --disk N` runs, and the
+  VM is started again; any other status is left as it was. `--tty=false`
+  keeps `edit` from offering to start the instance itself.
+- `setSettingsDisk` writes `vms.<name>.disk` **before** the restart: the edit
+  has already taken, so a failing start (a probe) must not leave the settings
+  behind the instance.
+- `withVMDisk` round-trips the file through `encoding/json/v2` with
+  `jsontext.Value` leaves, not through `vmConfig`: untouched blocks keep their
+  key order (only the indentation is redone), and nothing is dropped. Only
+  the root, `vms` and the edited block are re-marshaled, sorted by
+  `json.Deterministic`.
+
 `go run . list` reads the live `cpus`/`memory`/`disk` back out of
 `limactl list --format json`, where memory and disk are **bytes**. That is the
 declared *size* only — Lima reports no usage figure, so disk pressure is a
